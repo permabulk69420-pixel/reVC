@@ -30,9 +30,9 @@ public final class GameActivity extends SDLActivity {
     }
 
     /**
-     * SDLActivity calls this from inside super.onCreate(), before it creates the
-     * SurfaceView or permits SDL_main to start. Configure the JNI bridge here so
-     * native startup cannot race ahead of GameActivity/path/logger ownership.
+     * SDLActivity invokes this before SDL.setupJNI(), surface creation and the
+     * SDL_main thread. Only configure the already-proven storage bridge here.
+     * SDL's own nativeSetupJNI hook remains the sole Activity/JNI owner.
      */
     @Override
     public void loadLibraries() {
@@ -41,8 +41,9 @@ public final class GameActivity extends SDLActivity {
         try {
             super.loadLibraries();
             appendBootstrapLog(path, "JAVA native libraries loaded");
-            REVC.initialize(this, path);
-            appendBootstrapLog(path, "JAVA native bridge configured before SDL surface startup");
+            REVC.setGamePath(path);
+            appendBootstrapLog(path,
+                    "JAVA game path configured; SDL nativeSetupJNI will configure Activity");
         } catch (Throwable error) {
             appendBootstrapLog(path, "JAVA startup failed before SDL surface: "
                     + error.getClass().getName() + ": " + String.valueOf(error.getMessage()));
@@ -65,7 +66,9 @@ public final class GameActivity extends SDLActivity {
         Log.i(TAG, "Starting normal SDL/reVC renderer before OpenXR handoff");
         super.onCreate(savedInstanceState);
         if (!mBrokenLibraries) {
-            Log.i(TAG, "Native bridge was configured before SDL surface creation");
+            appendBootstrapLog(gamePath(),
+                    "JAVA SDL JNI setup complete; creating normal Android render surface");
+            Log.i(TAG, "SDL JNI setup completed before surface creation");
         }
     }
 
