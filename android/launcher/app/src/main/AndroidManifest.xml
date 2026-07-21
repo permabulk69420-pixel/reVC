@@ -74,21 +74,25 @@
         tools:targetApi="31">
 
         <activity
-            android:name=".GameActivity"
-            android:alwaysRetainTaskState="true"
-            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
-            android:exported="true"
-            android:hardwareAccelerated="true"
-            android:largeHeap="true"
-            android:launchMode="singleInstance"
-            android:preferMinimalPostProcessing="true"
-            android:screenOrientation="landscape"
-            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            android:name=".MainActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".GameActivity"
+            android:alwaysRetainTaskState="true"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:largeHeap="true"
+            android:launchMode="singleTask"
+            android:preferMinimalPostProcessing="true"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
