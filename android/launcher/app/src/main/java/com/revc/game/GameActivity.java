@@ -12,6 +12,8 @@ import org.libsdl.app.SDLActivity;
 import org.libsdl.app.SDLSurface;
 
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 
 /**
  * Immersive shell around the known-good flat SDL/reVC renderer.
@@ -25,6 +27,27 @@ public final class GameActivity extends SDLActivity {
     @Override
     protected String[] getLibraries() {
         return new String[] {"SDL2", "openal", "openxr_loader", "reVC"};
+    }
+
+    /**
+     * SDLActivity calls this from inside super.onCreate(), before it creates the
+     * SurfaceView or permits SDL_main to start. Configure the JNI bridge here so
+     * native startup cannot race ahead of GameActivity/path/logger ownership.
+     */
+    @Override
+    public void loadLibraries() {
+        final String path = gamePath();
+        appendBootstrapLog(path, "JAVA GameActivity entered library-load stage");
+        try {
+            super.loadLibraries();
+            appendBootstrapLog(path, "JAVA native libraries loaded");
+            REVC.initialize(this, path);
+            appendBootstrapLog(path, "JAVA native bridge configured before SDL surface startup");
+        } catch (Throwable error) {
+            appendBootstrapLog(path, "JAVA startup failed before SDL surface: "
+                    + error.getClass().getName() + ": " + String.valueOf(error.getMessage()));
+            throw error;
+        }
     }
 
     @Override
@@ -42,8 +65,7 @@ public final class GameActivity extends SDLActivity {
         Log.i(TAG, "Starting normal SDL/reVC renderer before OpenXR handoff");
         super.onCreate(savedInstanceState);
         if (!mBrokenLibraries) {
-            REVC.initialize(this, gamePath());
-            Log.i(TAG, "Native bridge configured for existing SDL EGL context");
+            Log.i(TAG, "Native bridge was configured before SDL surface creation");
         }
     }
 
@@ -91,6 +113,24 @@ public final class GameActivity extends SDLActivity {
                     .getAbsolutePath();
         }
         return path.endsWith(File.separator) ? path : path + File.separator;
+    }
+
+    private static void appendBootstrapLog(String gamePath, String message) {
+        try {
+            File root = new File(gamePath);
+            File userFiles = new File(root, "userfiles");
+            if (!userFiles.isDirectory() && !userFiles.mkdirs()) {
+                Log.e(TAG, "Unable to create Java bootstrap log directory: " + userFiles);
+                return;
+            }
+            try (FileWriter writer = new FileWriter(new File(userFiles, "xr_log.txt"), true)) {
+                writer.write(message);
+                writer.write('\n');
+                writer.flush();
+            }
+        } catch (IOException | RuntimeException error) {
+            Log.e(TAG, "Unable to append Java bootstrap log", error);
+        }
     }
 
     private final class QuestSurface extends SDLSurface {
