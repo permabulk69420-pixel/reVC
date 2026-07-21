@@ -20,14 +20,11 @@
 
 class CJavaWrapper
 {
-    jmethodID s_ExitGame;
 public:
     jobject activity;
 
     CJavaWrapper(JNIEnv* env, jobject activity);
     ~CJavaWrapper();
-
-    void ExitGame();
 
     // static methods
     static JNIEnv* GetEnv();

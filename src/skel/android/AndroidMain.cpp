@@ -19,15 +19,6 @@ uintptr_t g_libREVC = NULL;
 bool AndWrapper::AppInitialized = false;
 bool AndWrapper::AppStarted = false;
 
-JAVA_WRAPPER Java_org_libsdl_app_SDLActivity_nativeSetupJNI(JNIEnv* env, jobject initGame)
-{
-    if(!javaVM) {
-        env->GetJavaVM(&javaVM);
-    }
-
-    g_pJavaWrapper = new CJavaWrapper(env, initGame);
-}
-
 JAVA_WRAPPER Java_com_revc_game_core_REVC_setGamePath(JNIEnv *env, jobject obj, jstring value)
 {
     const char* root = env->GetStringUTFChars(value, NULL);
@@ -36,6 +27,24 @@ JAVA_WRAPPER Java_com_revc_game_core_REVC_setGamePath(JNIEnv *env, jobject obj, 
     StorageRootBuffer = getenv("STORAGE_ROOT");
     debug("Storage Root: %s", StorageRootBuffer);
 
+    env->ReleaseStringUTFChars(value, root);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_revc_game_core_REVC_initialize(JNIEnv *env, jclass, jobject activity,
+                                        jstring value)
+{
+    if(!javaVM)
+        env->GetJavaVM(&javaVM);
+
+    if(g_pJavaWrapper)
+        delete g_pJavaWrapper;
+    g_pJavaWrapper = new CJavaWrapper(env, activity);
+
+    const char* root = env->GetStringUTFChars(value, NULL);
+    setenv("STORAGE_ROOT", root, 1);
+    StorageRootBuffer = getenv("STORAGE_ROOT");
+    debug("Storage Root: %s", StorageRootBuffer);
     env->ReleaseStringUTFChars(value, root);
 }
 
