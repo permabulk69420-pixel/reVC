@@ -31,8 +31,9 @@ public final class GameActivity extends SDLActivity {
 
     /**
      * SDLActivity invokes this before SDL.setupJNI(), surface creation and the
-     * SDL_main thread. Only configure the already-proven storage bridge here.
-     * SDL's own nativeSetupJNI hook remains the sole Activity/JNI owner.
+     * SDL_main thread. Configure storage and give the OpenXR bridge an explicit
+     * global reference to this real GameActivity. SDL2 still owns its own JNI
+     * setup; this is only the Android context required by the OpenXR loader.
      */
     @Override
     public void loadLibraries() {
@@ -42,8 +43,9 @@ public final class GameActivity extends SDLActivity {
             super.loadLibraries();
             appendBootstrapLog(path, "JAVA native libraries loaded");
             REVC.setGamePath(path);
+            REVC.initialize(this, path);
             appendBootstrapLog(path,
-                    "JAVA game path configured; SDL nativeSetupJNI will configure Activity");
+                    "JAVA OpenXR Activity bridge configured before SDL surface startup");
         } catch (Throwable error) {
             appendBootstrapLog(path, "JAVA startup failed before SDL surface: "
                     + error.getClass().getName() + ": " + String.valueOf(error.getMessage()));
@@ -70,6 +72,15 @@ public final class GameActivity extends SDLActivity {
                     "JAVA SDL JNI setup complete; creating normal Android render surface");
             Log.i(TAG, "SDL JNI setup completed before surface creation");
         }
+    }
+
+    /** Native shutdown callback used by the existing Android wrapper. */
+    public void exitGame() {
+        runOnUiThread(() -> {
+            if (!isFinishing()) {
+                finish();
+            }
+        });
     }
 
     @Override
