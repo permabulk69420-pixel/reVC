@@ -5,18 +5,23 @@ import android.util.Log;
 
 import org.libsdl.app.SDLActivity;
 
-/**
- * Real native entry point for the Android reVC build.
- *
- * The old MainActivity was only the Android Studio "Hello World" placeholder.
- * This activity starts SDL and loads the native game libraries.
- */
+/** Native SDL entry point for the flat Android reVC build. */
 public final class GameActivity extends SDLActivity {
+    public static final String EXTRA_GAME_PATH = "com.revc.game.GAME_PATH";
     private static final String TAG = "reVC";
 
     @Override
     protected String[] getLibraries() {
         return new String[] { "SDL2", "openal", "reVC" };
+    }
+
+    @Override
+    protected String[] getArguments() {
+        String gamePath = getIntent().getStringExtra(EXTRA_GAME_PATH);
+        if (gamePath == null || gamePath.trim().isEmpty()) {
+            return new String[0];
+        }
+        return new String[] { "--dir", gamePath };
     }
 
     @Override
