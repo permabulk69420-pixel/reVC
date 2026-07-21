@@ -33,8 +33,14 @@ namespace CrashHandler {
         time_t currentTime = time(nullptr);
         tm* timeInfo = localtime(&currentTime);
 
+#if defined(__arm__) && !defined(__aarch64__)
+        const char* abiName = "armeabi-v7a";
+#else
+        const char* abiName = "arm64-v8a";
+#endif
+
         Logger::CrashLog("Crash time: %d:%d:%d %d:%d:%d", timeInfo->tm_mday, timeInfo->tm_mon, timeInfo->tm_year, timeInfo->tm_hour, timeInfo->tm_min, timeInfo->tm_sec);
-        Logger::CrashLog("Build times: %s %s. ABI: %s", __TIME__, __DATE__, (ANDROID_x32 ? "armeabi-v7a" : "arm64-v8a"));
+        Logger::CrashLog("Build times: %s %s. ABI: %s", __TIME__, __DATE__, abiName);
         Logger::CrashLog("Last processed auto and entity: %d %d", g_usLastProcessedModelIndexAutomobile, g_iLastProcessedModelIndexAutoEnt);
         Logger::CrashLog("Last rendered object: %d", g_iLastRenderedObject);
     }
@@ -99,4 +105,5 @@ namespace CrashHandler {
         }
     }
 }
+
 #endif
