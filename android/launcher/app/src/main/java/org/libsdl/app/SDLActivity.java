@@ -311,6 +311,15 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         return new SDLSurface(context);
     }
 
+    /**
+     * Immersive subclasses may retain the SDL thread when Quest retires the
+     * temporary Android window. The native code must already have rebound the
+     * same EGL context to an offscreen surface before this becomes true.
+     */
+    protected boolean shouldKeepNativeThreadRunning() {
+        return false;
+    }
+
     // Setup
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -428,6 +437,15 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         mNextNativeState = NativeState.PAUSED;
         mIsResumedCalled = false;
 
+        if (shouldKeepNativeThreadRunning()) {
+            Log.i(TAG, "Retaining the sole immersive SDL/OpenXR render thread");
+            if (mSurface != null) {
+                mSurface.handlePause();
+            }
+            mNextNativeState = NativeState.RESUMED;
+            return;
+        }
+
         if (SDLActivity.mBrokenLibraries) {
             return;
         }
@@ -438,6 +456,13 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     protected void resumeNativeThread() {
         mNextNativeState = NativeState.RESUMED;
         mIsResumedCalled = true;
+
+        if (shouldKeepNativeThreadRunning()) {
+            if (mSurface != null) {
+                mSurface.handleResume();
+            }
+            return;
+        }
 
         if (SDLActivity.mBrokenLibraries) {
            return;
@@ -2112,4 +2137,3 @@ class SDLClipboardHandler implements
         SDLActivity.onNativeClipboardChanged();
     }
 }
-

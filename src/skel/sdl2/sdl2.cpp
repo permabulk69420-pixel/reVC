@@ -34,6 +34,7 @@ long _dwOperatingSystemVersion;
 
 #if defined ANDROID
 #include "JavaWrapper.h"
+#include "QuestOpenXR.h"
 extern char* StorageRootBuffer;
 #endif
 
@@ -62,6 +63,120 @@ static RwInt32 bestWndMode = -1;
 #endif
 
 static psGlobalType PsGlobal;
+
+#if defined(ANDROID)
+static bool XrCameraPoseApplied = false;
+static RwMatrix XrSavedCameraMatrix;
+static RwV2d XrSavedViewWindow;
+static RwV2d XrSavedViewOffset;
+
+static void
+RestoreCameraAfterHeadTracking(RwCamera *camera)
+{
+    if(!XrCameraPoseApplied || camera == nil)
+        return;
+
+    RwFrame *frame = RwCameraGetFrame(camera);
+    *RwFrameGetMatrix(frame) = XrSavedCameraMatrix;
+    RwFrameUpdateObjects(frame);
+    RwCameraSetViewWindow(camera, &XrSavedViewWindow);
+    RwCameraSetViewOffset(camera, &XrSavedViewOffset);
+    XrCameraPoseApplied = false;
+}
+
+static void
+ApplyHeadTrackingToCamera(RwCamera *camera)
+{
+    RestoreCameraAfterHeadTracking(camera);
+
+    QuestOpenXR::HeadState head;
+    if(camera == nil || !QuestOpenXR::GetHeadState(&head) || !head.valid)
+        return;
+
+    RwFrame *frame = RwCameraGetFrame(camera);
+    XrSavedCameraMatrix = *RwFrameGetMatrix(frame);
+    XrSavedViewWindow = *RwCameraGetViewWindow(camera);
+    XrSavedViewOffset = *RwCameraGetViewOffset(camera);
+
+    // OpenXR is +X right, +Y up, -Z forward. GTA/RenderWare is
+    // +X right, +Z up, +Y forward. This proper-basis conversion maps
+    // the tracked rotation into the camera's local coordinates.
+    const rw::Quat orientation = rw::makeQuat(
+            head.orientation[3],
+            head.orientation[0],
+            -head.orientation[2],
+            head.orientation[1]);
+    RwMatrix localRotation;
+    localRotation.setIdentity();
+    localRotation.rotate(orientation, rw::COMBINEREPLACE);
+
+    const RwV3d position = RwFrameGetMatrix(frame)->pos;
+    RwFrameTransform(frame, &localRotation, rwCOMBINEPOSTCONCAT);
+    RwFrameGetMatrix(frame)->pos = position;
+    RwFrameUpdateObjects(frame);
+
+    RwV2d viewWindow;
+    viewWindow.x = head.tanHalfFov[0];
+    viewWindow.y = head.tanHalfFov[1];
+    RwV2d viewOffset = { 0.0f, 0.0f };
+    RwCameraSetViewWindow(camera, &viewWindow);
+    RwCameraSetViewOffset(camera, &viewOffset);
+    XrCameraPoseApplied = true;
+}
+
+static bool
+InstallOpenXrCameraTarget(RwCamera *camera)
+{
+    const int width = QuestOpenXR::RecommendedWidth();
+    const int height = QuestOpenXR::RecommendedHeight();
+    if(camera == nil || width <= 0 || height <= 0)
+        return false;
+
+    RwRaster *color = RwRasterCreate(
+            width, height, 32,
+            rwRASTERTYPECAMERATEXTURE | rwRASTERFORMAT8888);
+    RwRaster *depth = RwRasterCreate(
+            width, height, 0, rwRASTERTYPEZBUFFER);
+    if(color == nil || depth == nil) {
+        if(color != nil)
+            RwRasterDestroy(color);
+        if(depth != nil)
+            RwRasterDestroy(depth);
+        return false;
+    }
+
+    RwRaster *oldColor = RwCameraGetRaster(camera);
+    RwRaster *oldDepth = RwCameraGetZRaster(camera);
+    RwCameraSetRaster(camera, color);
+    RwCameraSetZRaster(camera, depth);
+    if(oldColor != nil)
+        RwRasterDestroy(oldColor);
+    if(oldDepth != nil)
+        RwRasterDestroy(oldDepth);
+
+    rw::gl3::Gl3Raster *native = PLUGINOFFSET(
+            rw::gl3::Gl3Raster, color, rw::gl3::nativeRasterOffset);
+    if(native == nil || native->fbo == 0) {
+        debug("OpenXR camera texture did not create a GLES framebuffer");
+        return false;
+    }
+    debug("OpenXR camera target: %dx%d FBO=%u", width, height, native->fbo);
+    return true;
+}
+
+static QuestOpenXR::FrameResult
+SubmitOpenXrCamera(RwCamera *camera)
+{
+    if(camera == nil)
+        return QuestOpenXR::FrameResult::FatalError;
+    RwRaster *raster = RwCameraGetRaster(camera);
+    rw::gl3::Gl3Raster *native = PLUGINOFFSET(
+            rw::gl3::Gl3Raster, raster, rw::gl3::nativeRasterOffset);
+    return QuestOpenXR::SubmitGameFrame(
+            native == nil ? 0 : native->fbo,
+            RwRasterGetWidth(raster), RwRasterGetHeight(raster));
+}
+#endif
 
 static SDL_GameController* gamepad1 = nullptr;
 static SDL_GameController* gamepad2 = nullptr;
@@ -118,6 +233,9 @@ const char *_psGetUserFilesFolder()
 RwBool
 psCameraBeginUpdate(RwCamera *camera)
 {
+#if defined(ANDROID)
+    ApplyHeadTrackingToCamera(camera);
+#endif
     if ( !RwCameraBeginUpdate(Scene.camera) )
     {
         ForegroundApp = FALSE;
@@ -134,6 +252,16 @@ psCameraBeginUpdate(RwCamera *camera)
 void
 psCameraShowRaster(RwCamera *camera)
 {
+#if defined(ANDROID)
+    RestoreCameraAfterHeadTracking(camera);
+    if(QuestOpenXR::OwnsPresentation()) {
+        const QuestOpenXR::FrameResult result = SubmitOpenXrCamera(camera);
+        if(result == QuestOpenXR::FrameResult::ExitRequested ||
+           result == QuestOpenXR::FrameResult::FatalError)
+            RsGlobal.quit = TRUE;
+        return;
+    }
+#endif
 #ifdef LEGACY_MENU_OPTIONS
     if (FrontEndMenuManager.m_PrefsVsync || FrontEndMenuManager.m_bMenuActive)
 #else
@@ -1337,6 +1465,9 @@ main(int argc, char *argv[])
         if(strcmp(argv[i], "--dir") == 0 && i + 1 < argc) {
             const char *gamePath = argv[i+1];
             setenv("STORAGE_ROOT", gamePath, 1);
+#if defined(ANDROID)
+            StorageRootBuffer = getenv("STORAGE_ROOT");
+#endif
         }
     }
 
@@ -1378,6 +1509,22 @@ main(int argc, char *argv[])
 
     psPostRWinit();
 
+#if defined(ANDROID)
+    if(!QuestOpenXR::Initialize()) {
+        _psFreeVideoModeList();
+        QuestOpenXR::Shutdown();
+        RsEventHandler(rsRWTERMINATE, nil);
+        QuestOpenXR::FinalizeAfterEngineShutdown();
+        RsEventHandler(rsTERMINATE, nil);
+        return 0;
+    }
+
+    // Render the game once at the runtime's recommended per-eye resolution.
+    // The same reVC camera FBO is then submitted by the OpenXR frame loop.
+    RsGlobal.maximumWidth = QuestOpenXR::RecommendedWidth();
+    RsGlobal.maximumHeight = QuestOpenXR::RecommendedHeight();
+#endif
+
     ControlsManager.InitDefaultControlConfigMouse(MousePointerStateHelper.GetMouseSetUp());
 
 //	glfwSetWindowPos(PSGLOBAL(window), 0, 0);
@@ -1404,6 +1551,35 @@ main(int argc, char *argv[])
 
         RsEventHandler(rsCAMERASIZE, &r);
     }
+
+#if defined(ANDROID)
+    if(!InstallOpenXrCameraTarget(Scene.camera) ||
+       !QuestOpenXR::AwaitSessionReady(5000)) {
+        _psFreeVideoModeList();
+        QuestOpenXR::Shutdown();
+        RsEventHandler(rsRWTERMINATE, nil);
+        QuestOpenXR::FinalizeAfterEngineShutdown();
+        RsEventHandler(rsTERMINATE, nil);
+        return 0;
+    }
+
+    // Retire Quest's loading environment immediately with a valid projection
+    // frame. Every subsequent call to psCameraShowRaster replaces it with the
+    // completed Vice City RenderWare frame.
+    RwRGBA xrBootstrapBlack = { 0, 0, 0, 255 };
+    RwCameraClear(Scene.camera, &xrBootstrapBlack,
+                  rwCAMERACLEARIMAGE | rwCAMERACLEARZ);
+    const QuestOpenXR::FrameResult xrBootstrap = SubmitOpenXrCamera(Scene.camera);
+    if(xrBootstrap == QuestOpenXR::FrameResult::FatalError ||
+       xrBootstrap == QuestOpenXR::FrameResult::ExitRequested) {
+        _psFreeVideoModeList();
+        QuestOpenXR::Shutdown();
+        RsEventHandler(rsRWTERMINATE, nil);
+        QuestOpenXR::FinalizeAfterEngineShutdown();
+        RsEventHandler(rsTERMINATE, nil);
+        return 0;
+    }
+#endif
 
     {
         CFileMgr::SetDirMyDocuments();
@@ -1493,6 +1669,11 @@ main(int argc, char *argv[])
         while( !RsGlobal.quit && !FrontEndMenuManager.m_bWantToRestart && !SDL_QuitRequested())
 #endif
         {
+#if defined(ANDROID)
+            QuestOpenXR::PollEvents();
+            if(QuestOpenXR::ExitRequested())
+                RsGlobal.quit = TRUE;
+#endif
             inputEventHandler();
 
 #ifndef MASTER
@@ -1815,11 +1996,18 @@ main(int argc, char *argv[])
 
     _psFreeVideoModeList();
 
+#if defined(ANDROID)
+    QuestOpenXR::Shutdown();
+#endif
 
     /*
      * Tidy up the 3D (RenderWare) components of the application...
      */
     RsEventHandler(rsRWTERMINATE, nil);
+
+#if defined(ANDROID)
+    QuestOpenXR::FinalizeAfterEngineShutdown();
+#endif
 
     /*
      * Free the platform dependent data...

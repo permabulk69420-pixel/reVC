@@ -92,6 +92,13 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     public void surfaceDestroyed(SurfaceHolder holder) {
         Log.v("SDL", "surfaceDestroyed()");
 
+        if (SDLActivity.mSingleton != null &&
+                SDLActivity.mSingleton.shouldKeepNativeThreadRunning()) {
+            Log.i("SDL", "Android window retired; keeping immersive EGL ownership");
+            mIsSurfaceReady = false;
+            return;
+        }
+
         // Transition to pause, if needed
         SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
         SDLActivity.handleNativeState();
