@@ -35,31 +35,8 @@ JNIEnv* CJavaWrapper::GetEnv() {
     return env;
 }
 
-void CJavaWrapper::ExitGame() {
-
-    JNIEnv* env = GetEnv();
-
-    if (!env) {
-        debug("No env");
-        return;
-    }
-
-    env->CallVoidMethod(this->activity, this->s_ExitGame);
-}
-
-CJavaWrapper::CJavaWrapper(JNIEnv *env, jobject activity) {
+CJavaWrapper::CJavaWrapper(JNIEnv *env, jobject activity) : activity(NULL) {
     this->activity = env->NewGlobalRef(activity);
-
-    jclass nvEventClass = env->GetObjectClass(activity);
-
-    if (!nvEventClass) {
-        debug("nvEventClass null");
-        return;
-    }
-
-    s_ExitGame = env->GetMethodID(nvEventClass, "exitGame", "()V");
-    env->DeleteLocalRef(nvEventClass);
-    env->DeleteLocalRef(activity);
 }
 
 CJavaWrapper::~CJavaWrapper() {
