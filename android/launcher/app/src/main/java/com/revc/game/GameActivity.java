@@ -3,6 +3,8 @@ package com.revc.game;
 import android.os.Bundle;
 import android.util.Log;
 
+import com.revc.game.core.REVC;
+
 import org.libsdl.app.SDLActivity;
 
 /** Native SDL entry point for the flat Android reVC build. */
@@ -28,5 +30,11 @@ public final class GameActivity extends SDLActivity {
     protected void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "Starting native reVC activity");
         super.onCreate(savedInstanceState);
+
+        String gamePath = getIntent().getStringExtra(EXTRA_GAME_PATH);
+        if (gamePath != null && !gamePath.trim().isEmpty() && !mBrokenLibraries) {
+            REVC.setGamePath(gamePath);
+            Log.i(TAG, "Configured game path: " + gamePath);
+        }
     }
 }
