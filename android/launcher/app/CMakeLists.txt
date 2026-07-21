@@ -88,6 +88,15 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
+# This diagnostic-only source wraps the startup calls at the linker boundary.
+# A call that hangs leaves a BEGIN line without an END line in xr_log.txt.
+target_sources(reVC PRIVATE
+        "${REVC_GAME_DIR}/src/skel/android/StartupDiagnostics.cpp")
+target_link_options(reVC PRIVATE
+        "-Wl,--wrap=RsEventHandler"
+        "-Wl,--wrap=psInitialize"
+        "-Wl,--wrap=psSelectDevice")
+
 # QuestOpenXR.cpp is part of reVC and creates the one EGL context on the game
 # thread before RenderWare starts. The shim makes librw adopt that context
 # while leaving the upstream librw submodule untouched.
