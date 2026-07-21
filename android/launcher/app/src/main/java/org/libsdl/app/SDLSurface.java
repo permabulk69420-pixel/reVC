@@ -84,6 +84,11 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
         Log.v("SDL", "surfaceCreated()");
+        if (SDLActivity.mSingleton != null &&
+                !SDLActivity.mSingleton.usesAndroidRenderSurface()) {
+            Log.i("SDL", "Ignoring Android render surface; OpenXR owns presentation");
+            return;
+        }
         SDLActivity.onNativeSurfaceCreated();
     }
 
@@ -91,6 +96,20 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         Log.v("SDL", "surfaceDestroyed()");
+
+        if (SDLActivity.mSingleton != null &&
+                !SDLActivity.mSingleton.usesAndroidRenderSurface()) {
+            Log.i("SDL", "Android surface retired; OpenXR game thread remains authoritative");
+            mIsSurfaceReady = false;
+            return;
+        }
+
+        if (SDLActivity.mSingleton != null &&
+                SDLActivity.mSingleton.shouldKeepNativeThreadRunning()) {
+            Log.i("SDL", "Android window retired; keeping immersive EGL ownership");
+            mIsSurfaceReady = false;
+            return;
+        }
 
         // Transition to pause, if needed
         SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
@@ -112,6 +131,12 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
 
         mWidth = width;
         mHeight = height;
+
+        if (!SDLActivity.mSingleton.usesAndroidRenderSurface()) {
+            Log.i("SDL", "Android surface size observed but not bound to native rendering");
+            return;
+        }
+
         int nDeviceWidth = width;
         int nDeviceHeight = height;
         try

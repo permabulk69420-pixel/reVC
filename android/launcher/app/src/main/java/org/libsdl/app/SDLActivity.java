@@ -311,6 +311,36 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         return new SDLSurface(context);
     }
 
+    /** Immersive subclasses may keep their native owner across window changes. */
+    protected boolean shouldKeepNativeThreadRunning() {
+        return false;
+    }
+
+    /**
+     * OpenXR Activities must enter native code without waiting for the
+     * temporary Android SurfaceView. Quest can retire that surface while it
+     * is handing presentation to OpenXR, so making it a startup prerequisite
+     * deadlocks the compositor and the application.
+     */
+    protected boolean shouldStartNativeThreadWithoutSurface() {
+        return false;
+    }
+
+    /** Whether SDL owns and renders to the Activity's Android SurfaceView. */
+    protected boolean usesAndroidRenderSurface() {
+        return true;
+    }
+
+    /** Zero preserves SDL's normal unbounded shutdown wait. */
+    protected long nativeThreadShutdownTimeoutMillis() {
+        return 0;
+    }
+
+    /** Immersive apps may use a process-local failsafe to return control to VR. */
+    protected boolean terminateProcessIfNativeThreadStalls() {
+        return false;
+    }
+
     // Setup
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -428,6 +458,14 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         mNextNativeState = NativeState.PAUSED;
         mIsResumedCalled = false;
 
+        if (shouldKeepNativeThreadRunning()) {
+            Log.i(TAG, "Retaining the sole immersive SDL/OpenXR render thread");
+            if (mSurface != null) {
+                mSurface.handlePause();
+            }
+            return;
+        }
+
         if (SDLActivity.mBrokenLibraries) {
             return;
         }
@@ -540,9 +578,11 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
         } else {
            nativeFocusChanged(false);
-           if (!mHasMultiWindow) {
+           if (!mHasMultiWindow && !shouldKeepNativeThreadRunning()) {
                mNextNativeState = NativeState.PAUSED;
                SDLActivity.handleNativeState();
+           } else if (shouldKeepNativeThreadRunning()) {
+               Log.i(TAG, "Window focus left the immersive Activity; native OpenXR ownership retained");
            }
         }
     }
@@ -595,11 +635,25 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             // Send Quit event to "SDLThread" thread
             SDLActivity.nativeSendQuit();
 
-            // Wait for "SDLThread" thread to end
+            // Wait for the native thread to release its graphics/runtime state.
             try {
-                SDLActivity.mSDLThread.join();
+                final long timeout = nativeThreadShutdownTimeoutMillis();
+                if (timeout > 0) {
+                    SDLActivity.mSDLThread.join(timeout);
+                } else {
+                    SDLActivity.mSDLThread.join();
+                }
             } catch(Exception e) {
                 Log.v(TAG, "Problem stopping SDLThread: " + e);
+            }
+
+            if (SDLActivity.mSDLThread.isAlive() &&
+                    terminateProcessIfNativeThreadStalls()) {
+                Log.e(TAG, "Native immersive shutdown timed out; terminating this app process " +
+                        "so Quest regains control");
+                super.onDestroy();
+                android.os.Process.killProcess(android.os.Process.myPid());
+                return;
             }
         }
 
@@ -698,13 +752,22 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
         // Try a transition to resumed state
         if (mNextNativeState == NativeState.RESUMED) {
-            if (mSurface.mIsSurfaceReady && mHasFocus && mIsResumedCalled) {
+            final boolean headlessStartup = mSingleton != null &&
+                    mSingleton.shouldStartNativeThreadWithoutSurface();
+            final boolean surfaceReady = mSurface != null && mSurface.mIsSurfaceReady;
+            if ((headlessStartup || surfaceReady) &&
+                    (headlessStartup || mHasFocus) && mIsResumedCalled) {
                 if (mSDLThread == null) {
                     // This is the entry point to the C app.
                     // Start up the C app thread and enable sensor input for the first time
                     // FIXME: Why aren't we enabling sensor input at start?
 
-                    mSDLThread = new Thread(new SDLMain(), "SDLThread");
+                    if (headlessStartup) {
+                        Log.i(TAG, "Starting sole native game/OpenXR thread without an Android render surface");
+                    }
+
+                    mSDLThread = new Thread(new SDLMain(),
+                            headlessStartup ? "OpenXRGameThread" : "SDLThread");
                     mSurface.enableSensor(Sensor.TYPE_ACCELEROMETER, true);
                     mSDLThread.start();
 
@@ -2112,4 +2175,3 @@ class SDLClipboardHandler implements
         SDLActivity.onNativeClipboardChanged();
     }
 }
-
