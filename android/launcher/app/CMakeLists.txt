@@ -91,6 +91,7 @@ add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 # QuestOpenXR.cpp is part of the reVC source tree and therefore runs inside the
 # same shared object, SDL thread and GLES context as the game renderer.
 target_compile_definitions(reVC PRIVATE
+        ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
         XR_USE_GRAPHICS_API_OPENGL_ES)
 target_link_libraries(reVC PRIVATE
