@@ -62,7 +62,9 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
 # OpenXR is bolted onto the completed flat renderer. The link wrappers intercept
-# camera resize/presentation without replacing SDL device or EGL creation.
+# camera resize/presentation without replacing SDL device or EGL creation. The
+# Initialize wrapper promotes the already-created session through an immersive
+# alias only after the EGL context has been parked safely.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -76,4 +78,5 @@ target_link_libraries(reVC PRIVATE
 target_link_options(reVC PRIVATE
         "-Wl,--wrap=RsEventHandler"
         "-Wl,--wrap=psCameraBeginUpdate"
-        "-Wl,--wrap=psCameraShowRaster")
+        "-Wl,--wrap=psCameraShowRaster"
+        "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv")
