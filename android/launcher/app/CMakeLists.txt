@@ -21,11 +21,9 @@ if(NOT IS_DIRECTORY "${REVC_GAME_DIR}" OR NOT EXISTS "${REVC_GAME_DIR}/CMakeList
 endif()
 
 if(NOT ANDROID_ABI STREQUAL "arm64-v8a")
-    message(FATAL_ERROR "The bring-up build currently supports arm64-v8a only (got ${ANDROID_ABI})")
+    message(FATAL_ERROR "Quest builds support arm64-v8a only (got ${ANDROID_ABI})")
 endif()
 
-# The Android fork already contains prebuilt ARM64 dependencies, but its old
-# placeholder Gradle project never exposed them to CMake. Wire them in here.
 set(SDL2_INCLUDE_DIR "${REVC_VENDOR_DIR}/sdl2/include")
 set(SDL2_LIBRARY "${REVC_VENDOR_DIR}/sdl2/libs/Android/${ANDROID_ABI}/libSDL2.so")
 set(OPENAL_INCLUDE_DIR "${REVC_VENDOR_DIR}/openal-soft/include" CACHE PATH "Android OpenAL headers" FORCE)
@@ -49,8 +47,9 @@ if(NOT TARGET SDL2::SDL2)
             INTERFACE_INCLUDE_DIRECTORIES "${SDL2_INCLUDE_DIR}")
 endif()
 
-# Configure librw/reVC for Android OpenGL ES + SDL2 before the real project is
-# added. The vendored librw project consumes these cache values at configure time.
+find_package(OpenXR REQUIRED CONFIG)
+
+# Preserve the known-good Android renderer exactly as it was configured.
 set(LIBRW_PLATFORM "GL3" CACHE STRING "librw platform" FORCE)
 set(LIBRW_GL3_GFXLIB "SDL2" CACHE STRING "librw window/input backend" FORCE)
 set(LIBRW_TOOLS OFF CACHE BOOL "Do not build desktop librw tools" FORCE)
@@ -60,5 +59,21 @@ set(REVC_AUDIO "OAL" CACHE STRING "Use OpenAL audio backend" FORCE)
 set(REVC_VENDORED_LIBRW ON CACHE BOOL "Use vendored librw" FORCE)
 set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
-# Compile and package the actual reVC engine instead of the old Hello World shell.
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
+
+# OpenXR is bolted onto the completed flat renderer. The link wrappers intercept
+# camera resize/presentation without replacing SDL device or EGL creation.
+target_compile_definitions(reVC PRIVATE
+        ANDROID_x32=0
+        XR_USE_PLATFORM_ANDROID
+        XR_USE_GRAPHICS_API_OPENGL_ES)
+target_link_libraries(reVC PRIVATE
+        OpenXR::openxr_loader
+        android
+        log
+        EGL
+        GLESv3)
+target_link_options(reVC PRIVATE
+        "-Wl,--wrap=RsEventHandler"
+        "-Wl,--wrap=psCameraBeginUpdate"
+        "-Wl,--wrap=psCameraShowRaster")
