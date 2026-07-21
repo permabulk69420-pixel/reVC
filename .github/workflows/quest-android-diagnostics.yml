@@ -42,4 +42,4 @@ jobs:
           path: android/launcher/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-# Branch-local workflow for the hardware diagnostic APK only.
+# Branch-local workflow for the hardware diagnostic APK only. PR trigger refreshed.
