@@ -99,10 +99,9 @@
         </activity>
 
         <!--
-          Keep the game Activity as an ordinary Android/SDL Activity while the
-          known-good RenderWare device and camera target are created. The OpenXR
-          runtime receives this Activity through XrInstanceCreateInfoAndroidKHR
-          and takes immersive ownership only when xrCreateSession is called.
+          Boot the known-good game renderer as an ordinary Android/SDL Activity.
+          Only after OpenXR has created a session and parked the SDL EGL context
+          is this same singleTask Activity relaunched through the immersive alias.
         -->
         <activity
             android:name=".GameActivity"
@@ -117,6 +116,18 @@
             android:screenOrientation="landscape"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             tools:ignore="NonResizeableActivity" />
+
+        <activity-alias
+            android:name=".ImmersiveGameAlias"
+            android:enabled="true"
+            android:exported="false"
+            android:targetActivity=".GameActivity">
+            <intent-filter>
+                <action android:name="com.revc.game.action.ENTER_IMMERSIVE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
+            </intent-filter>
+        </activity-alias>
 
         <provider
             android:name="androidx.core.content.FileProvider"
