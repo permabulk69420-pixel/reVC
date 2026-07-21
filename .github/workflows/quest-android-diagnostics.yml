@@ -41,3 +41,5 @@ jobs:
           name: revc-renderware-diagnostics-release
           path: android/launcher/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+# Branch-local workflow for the hardware diagnostic APK only.
