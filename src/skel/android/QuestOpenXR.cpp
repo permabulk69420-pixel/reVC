@@ -992,6 +992,39 @@ void DestroyRuntimeObjects() {
     g.initialized = false;
 }
 
+void RequestCleanSessionExit() {
+    if (g.session == XR_NULL_HANDLE || !g.sessionRunning) {
+        return;
+    }
+
+    const XrResult requestResult = xrRequestExitSession(g.session);
+    if (XR_FAILED(requestResult)) {
+        Log("xrRequestExitSession failed: %s; destroying the session directly",
+            ResultName(requestResult));
+        return;
+    }
+    Log("xrRequestExitSession succeeded; draining runtime shutdown events");
+
+    const uint64_t start = MonotonicMilliseconds();
+    while (g.sessionState != XR_SESSION_STATE_EXITING &&
+           g.sessionState != XR_SESSION_STATE_LOSS_PENDING &&
+           MonotonicMilliseconds() - start < 1500) {
+        if (!PollEventsInternal()) {
+            break;
+        }
+        const timespec pause = {0, 2000000};
+        nanosleep(&pause, NULL);
+    }
+
+    if (g.sessionRunning) {
+        Log("Runtime exit drain timed out in state=%s; bounded direct destroy",
+            SessionStateName(g.sessionState));
+    } else {
+        Log("Runtime exit drained to state=%s",
+            SessionStateName(g.sessionState));
+    }
+}
+
 void RestoreWindowIfAvailable() {
     if (!g.parkingActive || g.parkingSurfaceless ||
         g.parkingSurface == EGL_NO_SURFACE) {
@@ -1134,6 +1167,7 @@ void Shutdown() {
     Log("OpenXR shutdown: state=%s running=%d submitted=%llu",
         SessionStateName(g.sessionState), g.sessionRunning ? 1 : 0,
         static_cast<unsigned long long>(g.frameCount));
+    RequestCleanSessionExit();
     DestroyRuntimeObjects();
     RestoreWindowIfAvailable();
 }
