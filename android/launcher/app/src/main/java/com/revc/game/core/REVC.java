@@ -7,5 +7,6 @@ public final class REVC {
     private REVC() {}
 
     public static native void initialize(Activity activity, String path);
+    public static native void requestExit();
     public static native boolean isOpenXrPresentationActive();
 }

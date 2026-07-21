@@ -24,6 +24,7 @@ struct HeadState {
 // thread creates the sole EGL context before RenderWare adopts it; no Android
 // render surface, native side thread, or second EGL context exists.
 bool Initialize();
+bool StartSession();
 bool AwaitSessionReady(uint32_t timeoutMilliseconds);
 FrameResult SubmitGameFrame(unsigned int sourceFramebuffer,
                             int sourceWidth, int sourceHeight);
@@ -36,6 +37,7 @@ int RecommendedHeight();
 bool GetHeadState(HeadState* state);
 bool OwnsPresentation();
 bool ExitRequested();
+void RequestExitFromActivity();
 
 } // namespace QuestOpenXR
 

@@ -1574,6 +1574,7 @@ main(int argc, char *argv[])
 
 #if defined(ANDROID)
     if(!InstallOpenXrCameraTarget(Scene.camera) ||
+       !QuestOpenXR::StartSession() ||
        !QuestOpenXR::AwaitSessionReady(5000)) {
         _psFreeVideoModeList();
         QuestOpenXR::Shutdown();
@@ -1587,11 +1588,16 @@ main(int argc, char *argv[])
     // frame. Every subsequent call to psCameraShowRaster replaces it with the
     // completed Vice City RenderWare frame.
     RwRGBA xrBootstrapBlack = { 0, 0, 0, 255 };
-    RwCameraClear(Scene.camera, &xrBootstrapBlack,
-                  rwCAMERACLEARIMAGE | rwCAMERACLEARZ);
-    const QuestOpenXR::FrameResult xrBootstrap = SubmitOpenXrCamera(Scene.camera);
-    if(xrBootstrap == QuestOpenXR::FrameResult::FatalError ||
-       xrBootstrap == QuestOpenXR::FrameResult::ExitRequested) {
+    QuestOpenXR::FrameResult xrBootstrap =
+            QuestOpenXR::FrameResult::WaitingForSession;
+    const double xrBootstrapDeadline = psTimer() + 5000.0;
+    do {
+        RwCameraClear(Scene.camera, &xrBootstrapBlack,
+                      rwCAMERACLEARIMAGE | rwCAMERACLEARZ);
+        xrBootstrap = SubmitOpenXrCamera(Scene.camera);
+    } while(xrBootstrap == QuestOpenXR::FrameResult::WaitingForSession &&
+            psTimer() < xrBootstrapDeadline);
+    if(xrBootstrap != QuestOpenXR::FrameResult::Presented) {
         _psFreeVideoModeList();
         QuestOpenXR::Shutdown();
         RsEventHandler(rsRWTERMINATE, nil);

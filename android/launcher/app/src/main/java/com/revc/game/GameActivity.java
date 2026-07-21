@@ -61,6 +61,16 @@ public final class GameActivity extends SDLActivity {
         return true;
     }
 
+    @Override
+    protected void onStop() {
+        if (!isChangingConfigurations() && !isFinishing() && !mBrokenLibraries) {
+            Log.i(TAG, "GameActivity left the foreground; requesting clean OpenXR exit");
+            REVC.requestExit();
+            finish();
+        }
+        super.onStop();
+    }
+
     private String gamePath() {
         String path = getIntent().getStringExtra(EXTRA_GAME_PATH);
         if (path == null || path.trim().isEmpty()) {

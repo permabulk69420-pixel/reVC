@@ -73,6 +73,7 @@ struct State {
     bool loggedWaitFrame;
     bool loggedBeginFrame;
     bool loggedEndFrame;
+    bool lastFrameHadLayer;
     std::atomic<bool> ownsPresentation;
     std::atomic<bool> exitRequested;
     pid_t ownerThread;
@@ -109,6 +110,7 @@ struct State {
           fatalError(false), parkingActive(false), parkingSurfaceless(false),
           headOriginSet(false), headValid(false), loggedWaitFrame(false),
           loggedBeginFrame(false), loggedEndFrame(false),
+          lastFrameHadLayer(false),
           ownsPresentation(false), exitRequested(false), ownerThread(-1),
           frameCount(0), logFile(NULL), instance(XR_NULL_HANDLE),
           systemId(XR_NULL_SYSTEM_ID), session(XR_NULL_HANDLE),
@@ -448,9 +450,13 @@ bool CreateSoleEglContext() {
         return false;
     }
 
+    // Match the Khronos Android hello_xr graphics contract. OpenXR rendering
+    // is framebuffer-only, but Quest expects a window-capable EGLConfig; the
+    // context itself remains surfaceless and is never attached to SDL's
+    // temporary Android SurfaceView.
     const EGLint configAttributes[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
-        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
         EGL_RED_SIZE, 8,
         EGL_GREEN_SIZE, 8,
         EGL_BLUE_SIZE, 8,
@@ -460,7 +466,7 @@ bool CreateSoleEglContext() {
     EGLint configCount = 0;
     if (eglChooseConfig(g.display, configAttributes, &g.config, 1,
                         &configCount) != EGL_TRUE || configCount < 1) {
-        Log("No GLES3 pbuffer EGLConfig available: 0x%x", eglGetError());
+        Log("No GLES3 window-capable EGLConfig available: 0x%x", eglGetError());
         return false;
     }
 
@@ -476,24 +482,14 @@ bool CreateSoleEglContext() {
         return false;
     }
 
-    const EGLint pbufferAttributes[] = {
-        EGL_WIDTH, 16,
-        EGL_HEIGHT, 16,
-        EGL_NONE
-    };
-    g.parkingSurface = eglCreatePbufferSurface(
-            g.display, g.config, pbufferAttributes);
-    if (g.parkingSurface == EGL_NO_SURFACE) {
-        Log("eglCreatePbufferSurface failed: 0x%x", eglGetError());
-        return false;
-    }
-    if (eglMakeCurrent(g.display, g.parkingSurface, g.parkingSurface,
+    if (eglMakeCurrent(g.display, EGL_NO_SURFACE, EGL_NO_SURFACE,
                        g.context) != EGL_TRUE) {
-        Log("eglMakeCurrent(sole pbuffer context) failed: 0x%x", eglGetError());
+        Log("eglMakeCurrent(sole surfaceless context) failed: 0x%x",
+            eglGetError());
         return false;
     }
     g.parkingActive = true;
-    g.parkingSurfaceless = false;
+    g.parkingSurfaceless = true;
 
     GLint major = 0;
     GLint minor = 0;
@@ -514,12 +510,45 @@ bool CreateSoleEglContext() {
             XR_VERSION_MINOR(requirements.maxApiVersionSupported));
         return false;
     }
-    Log("Sole GameThread graphics owner tid=%d EGLContext=%p pbuffer=%p "
+    Log("Sole GameThread graphics owner tid=%d EGLContext=%p surfaceless=1 "
         "EGL=%d.%d GLES=%d.%d renderer=%s",
-        static_cast<int>(g.ownerThread), g.context, g.parkingSurface,
+        static_cast<int>(g.ownerThread), g.context,
         eglMajor, eglMinor, major, minor,
         reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
     return true;
+}
+
+bool QueryViewConfiguration() {
+    uint32_t viewCount = 0;
+    if (!Check(xrEnumerateViewConfigurationViews(
+            g.instance, g.systemId, kViewType, 0, &viewCount, NULL),
+            "xrEnumerateViewConfigurationViews(count)") || viewCount == 0) {
+        return false;
+    }
+    g.viewConfigs.assign(
+            viewCount, XrViewConfigurationView{XR_TYPE_VIEW_CONFIGURATION_VIEW});
+    if (!Check(xrEnumerateViewConfigurationViews(
+            g.instance, g.systemId, kViewType, viewCount, &viewCount,
+            g.viewConfigs.data()),
+            "xrEnumerateViewConfigurationViews(list)")) {
+        return false;
+    }
+
+    g.recommendedWidth = 0;
+    g.recommendedHeight = 0;
+    for (uint32_t eye = 0; eye < viewCount; ++eye) {
+        const int width = static_cast<int>(
+                g.viewConfigs[eye].recommendedImageRectWidth);
+        const int height = static_cast<int>(
+                g.viewConfigs[eye].recommendedImageRectHeight);
+        g.recommendedWidth = g.recommendedWidth > width
+                ? g.recommendedWidth : width;
+        g.recommendedHeight = g.recommendedHeight > height
+                ? g.recommendedHeight : height;
+    }
+    Log("Runtime view configuration ready before engine startup: eyes=%u target=%dx%d",
+        viewCount, g.recommendedWidth, g.recommendedHeight);
+    return g.recommendedWidth > 0 && g.recommendedHeight > 0;
 }
 
 bool CreateSessionAndSpace() {
@@ -570,18 +599,9 @@ int64_t SelectColorFormat(const std::vector<int64_t>& formats) {
 }
 
 bool CreateSwapchains() {
-    uint32_t viewCount = 0;
-    if (!Check(xrEnumerateViewConfigurationViews(
-            g.instance, g.systemId, kViewType, 0, &viewCount, NULL),
-            "xrEnumerateViewConfigurationViews(count)") || viewCount == 0) {
-        return false;
-    }
-    g.viewConfigs.assign(
-            viewCount, XrViewConfigurationView{XR_TYPE_VIEW_CONFIGURATION_VIEW});
-    if (!Check(xrEnumerateViewConfigurationViews(
-            g.instance, g.systemId, kViewType, viewCount, &viewCount,
-            g.viewConfigs.data()),
-            "xrEnumerateViewConfigurationViews(list)")) {
+    const uint32_t viewCount = static_cast<uint32_t>(g.viewConfigs.size());
+    if (viewCount == 0) {
+        Log("Cannot create swapchains without a queried view configuration");
         return false;
     }
 
@@ -608,8 +628,6 @@ bool CreateSwapchains() {
             viewCount, XrCompositionLayerProjectionView{
                     XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW});
     g.swapchains.resize(viewCount);
-    g.recommendedWidth = 0;
-    g.recommendedHeight = 0;
 
     for (uint32_t eye = 0; eye < viewCount; ++eye) {
         Swapchain& swapchain = g.swapchains[eye];
@@ -617,11 +635,6 @@ bool CreateSwapchains() {
                 g.viewConfigs[eye].recommendedImageRectWidth);
         swapchain.height = static_cast<int32_t>(
                 g.viewConfigs[eye].recommendedImageRectHeight);
-        g.recommendedWidth = g.recommendedWidth > swapchain.width
-                ? g.recommendedWidth : swapchain.width;
-        g.recommendedHeight = g.recommendedHeight > swapchain.height
-                ? g.recommendedHeight : swapchain.height;
-
         XrSwapchainCreateInfo info = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
         info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT |
                           XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
@@ -820,6 +833,7 @@ bool BlitGameRasterToEye(const Swapchain& swapchain, uint32_t eye,
 
 bool RenderFrame(GLuint sourceFramebuffer, int sourceWidth,
                  int sourceHeight) {
+    g.lastFrameHadLayer = false;
     XrFrameWaitInfo waitInfo = {XR_TYPE_FRAME_WAIT_INFO};
     XrFrameState frameState = {XR_TYPE_FRAME_STATE};
     if (!Check(xrWaitFrame(g.session, &waitInfo, &frameState),
@@ -915,6 +929,7 @@ bool RenderFrame(GLuint sourceFramebuffer, int sourceWidth,
     if (!Check(xrEndFrame(g.session, &endInfo), "xrEndFrame")) {
         return false;
     }
+    g.lastFrameHadLayer = layerCount != 0;
     if (!g.loggedEndFrame) {
         Log("xrEndFrame succeeded: reVC layerCount=%u", layerCount);
         g.loggedEndFrame = true;
@@ -1013,6 +1028,9 @@ bool Initialize() {
     if (g.attempted) {
         return g.initialized;
     }
+    if (g.exitRequested.load()) {
+        return false;
+    }
     g.attempted = true;
     g.ownerThread = CurrentThreadId();
     OpenPersistentLog();
@@ -1033,6 +1051,28 @@ bool Initialize() {
         MarkInitializationFailure("sole EGLContext");
         return false;
     }
+    if (!QueryViewConfiguration()) {
+        MarkInitializationFailure("view configuration");
+        return false;
+    }
+
+    g.initialized = true;
+    // Instance/system and the one context are prepared so RenderWare can adopt
+    // them. Deliberately do not create an XrSession yet: once a session exists,
+    // the runtime may request READY and expects an immediate frame loop.
+    Log("OpenXR platform and sole EGL owner prepared; no XrSession exists while "
+        "RenderWare initializes");
+    return true;
+}
+
+bool StartSession() {
+    if (!g.initialized || g.exitRequested.load() ||
+        !OnOwnerThread("StartSession")) {
+        return false;
+    }
+    if (g.session != XR_NULL_HANDLE) {
+        return true;
+    }
     if (!CreateSessionAndSpace()) {
         MarkInitializationFailure("session/reference space");
         return false;
@@ -1042,17 +1082,17 @@ bool Initialize() {
         return false;
     }
 
-    g.initialized = true;
-    // This GameThread/context is now the only graphics and OpenXR owner. No
-    // Android window or second presentation path exists.
+    // Session creation and every frame call now occur back-to-back on this
+    // GameThread. There is no sidecar thread, second context, or Android
+    // Surface presentation path.
     g.ownsPresentation.store(true);
-    Log("OpenXR objects ready; deferring READY/begin-session until the reVC "
-        "camera target is ready");
+    Log("OpenXR session objects ready; entering READY/begin/frame loop immediately");
     return true;
 }
 
 bool AwaitSessionReady(uint32_t timeoutMilliseconds) {
-    if (!g.initialized || !OnOwnerThread("AwaitSessionReady")) {
+    if (!g.initialized || g.session == XR_NULL_HANDLE ||
+        !OnOwnerThread("AwaitSessionReady")) {
         return false;
     }
     const uint64_t start = MonotonicMilliseconds();
@@ -1104,7 +1144,8 @@ FrameResult SubmitGameFrame(unsigned int sourceFramebuffer,
         g.exitRequested.store(true);
         return FrameResult::FatalError;
     }
-    return FrameResult::Presented;
+    return g.lastFrameHadLayer
+            ? FrameResult::Presented : FrameResult::WaitingForSession;
 }
 
 void PollEvents() {
@@ -1166,6 +1207,7 @@ void FinalizeAfterEngineShutdown() {
     g.loggedWaitFrame = false;
     g.loggedBeginFrame = false;
     g.loggedEndFrame = false;
+    g.lastFrameHadLayer = false;
     g.exitRequested.store(false);
     g.ownsPresentation.store(false);
     g.frameCount = 0;
@@ -1202,7 +1244,18 @@ bool ExitRequested() {
     return g.exitRequested.load();
 }
 
+void RequestExitFromActivity() {
+    // Android lifecycle callbacks run on the UI thread. Only publish an
+    // atomic request here; the GameThread remains the sole caller of OpenXR.
+    g.exitRequested.store(true);
+}
+
 } // namespace QuestOpenXR
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_revc_game_core_REVC_requestExit(JNIEnv*, jclass) {
+    QuestOpenXR::RequestExitFromActivity();
+}
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_revc_game_core_REVC_isOpenXrPresentationActive(JNIEnv*, jclass) {
