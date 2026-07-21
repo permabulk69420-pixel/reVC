@@ -1,6 +1,8 @@
 package com.revc.game;
 
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
@@ -22,7 +24,15 @@ import java.io.IOException;
  */
 public final class GameActivity extends SDLActivity {
     public static final String EXTRA_GAME_PATH = "com.revc.game.GAME_PATH";
+    private static final String ACTION_ENTER_IMMERSIVE =
+            "com.revc.game.action.ENTER_IMMERSIVE";
+    private static final String EXTRA_IMMERSIVE_HANDOFF =
+            "com.revc.game.IMMERSIVE_HANDOFF";
+    private static final String IMMERSIVE_ALIAS =
+            "com.revc.game.ImmersiveGameAlias";
     private static final String TAG = "reVC-XR";
+
+    private boolean immersiveAliasAcknowledged;
 
     @Override
     protected String[] getLibraries() {
@@ -72,6 +82,58 @@ public final class GameActivity extends SDLActivity {
                     "JAVA SDL JNI setup complete; creating normal Android render surface");
             Log.i(TAG, "SDL JNI setup completed before surface creation");
         }
+        acknowledgeImmersiveAlias(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        acknowledgeImmersiveAlias(intent);
+    }
+
+    /**
+     * Called by the SDL render thread after OpenXR has created a session and
+     * parked the existing EGL context. Launching the alias targets this same
+     * singleTask Activity, so Android delivers onNewIntent instead of creating
+     * another renderer or another native thread.
+     */
+    public void requestImmersiveHandoff() {
+        runOnUiThread(() -> {
+            appendBootstrapLog(gamePath(),
+                    "JAVA launching existing GameActivity through IMMERSIVE_HMD alias");
+            try {
+                Intent intent = new Intent(ACTION_ENTER_IMMERSIVE);
+                intent.setComponent(new ComponentName(getPackageName(), IMMERSIVE_ALIAS));
+                intent.putExtra(EXTRA_IMMERSIVE_HANDOFF, true);
+                intent.putExtra(EXTRA_GAME_PATH, gamePath());
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(intent);
+            } catch (RuntimeException error) {
+                appendBootstrapLog(gamePath(),
+                        "JAVA immersive alias launch failed: "
+                                + error.getClass().getName() + ": "
+                                + String.valueOf(error.getMessage()));
+                Log.e(TAG, "Unable to launch immersive Activity alias", error);
+            }
+        });
+    }
+
+    private void acknowledgeImmersiveAlias(Intent intent) {
+        if (immersiveAliasAcknowledged || intent == null) {
+            return;
+        }
+        if (!intent.getBooleanExtra(EXTRA_IMMERSIVE_HANDOFF, false)
+                && !ACTION_ENTER_IMMERSIVE.equals(intent.getAction())) {
+            return;
+        }
+
+        immersiveAliasAcknowledged = true;
+        appendBootstrapLog(gamePath(),
+                "JAVA IMMERSIVE_HMD alias returned to existing GameActivity");
+        REVC.notifyImmersiveAliasReady();
     }
 
     /** Native shutdown callback used by the existing Android wrapper. */
