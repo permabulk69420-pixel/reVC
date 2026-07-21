@@ -6,28 +6,28 @@ on:
     paths:
       - 'android/launcher/**'
       - 'src/**'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
   pull_request:
     branches: [ "miami" ]
     paths:
       - 'android/launcher/**'
       - 'src/**'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
   release:
-    types: published 
-
+    types: published
   workflow_dispatch:
 
 permissions:
   contents: read
   actions: write
-  
+
 jobs:
   build-android:
-    name: Build Android APK (${{ matrix.variant }})
+    name: Build Android APK (debug ARM64)
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        variant: [debug, release]
+    timeout-minutes: 45
 
     defaults:
       run:
@@ -50,14 +50,6 @@ jobs:
           java-version: 17
           cache: gradle
 
-      - name: Declare build version
-        id: vars
-        shell: bash
-        env:
-          HEAD_REF: ${{ github.head_ref || github.ref_name }}
-        run: |
-          echo "build_version=$(git describe --always --tags "refs/remotes/origin/${HEAD_REF}")" >> $GITHUB_OUTPUT
-
       - name: Set up Gradle cache
         uses: actions/cache@v4
         with:
@@ -72,15 +64,12 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: ./gradlew clean
 
-      - name: Set assemble task name
-        run: echo "ASSEMBLE_TASK=assemble${{ matrix.variant == 'debug' && 'Debug' || 'Release' }}" >> $GITHUB_ENV
+      - name: Build ARM64 debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace --build-cache
 
-      - name: Build ${{ matrix.variant }} APK
-        run: ./gradlew $ASSEMBLE_TASK --no-daemon --stacktrace --parallel --build-cache
-
-      - name: Upload ${{ matrix.variant }} APK
+      - name: Upload ARM64 debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: revc-${{ matrix.variant }}
-          path: android/launcher/app/build/outputs/apk/${{ matrix.variant }}/app-${{ matrix.variant }}.apk
+          name: revc-android-arm64-debug
+          path: android/launcher/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
