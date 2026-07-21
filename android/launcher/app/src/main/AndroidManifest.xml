@@ -98,24 +98,25 @@
             </intent-filter>
         </activity>
 
+        <!--
+          Keep the game Activity as an ordinary Android/SDL Activity while the
+          known-good RenderWare device and camera target are created. The OpenXR
+          runtime receives this Activity through XrInstanceCreateInfoAndroidKHR
+          and takes immersive ownership only when xrCreateSession is called.
+        -->
         <activity
             android:name=".GameActivity"
+            android:alwaysRetainTaskState="true"
             android:configChanges="density|layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
-            android:excludeFromRecents="false"
             android:exported="false"
             android:hardwareAccelerated="true"
             android:largeHeap="true"
+            android:launchMode="singleTask"
             android:preferMinimalPostProcessing="true"
             android:resizeableActivity="false"
             android:screenOrientation="landscape"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
-            tools:ignore="NonResizeableActivity">
-            <intent-filter>
-                <action android:name="com.revc.game.action.QUEST_GAME" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
-            </intent-filter>
-        </activity>
+            tools:ignore="NonResizeableActivity" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
