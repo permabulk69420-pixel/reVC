@@ -3,6 +3,14 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 file(GLOB_RECURSE ${PROJECT}_SOURCES "*.cpp" "*.h" "*.rc")
 
+# Android builds compile QuestOpenXRStereo.cpp, which includes the proven
+# QuestOpenXR.cpp implementation in the same translation unit and extends it
+# with a split begin/eye/end frame API. Do not compile the original twice.
+if(ANDROID)
+    list(REMOVE_ITEM ${PROJECT}_SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/skel/android/QuestOpenXR.cpp")
+endif()
+
 function(header_directories RETURN_LIST)
     file(GLOB_RECURSE ALL_SRCS *.h *.cpp *.c)
     set(RELDIRS)
@@ -113,7 +121,7 @@ endif()
 if(${PROJECT}_WITH_LIBSNDFILE)
     find_package(SndFile REQUIRED)
     target_link_libraries(${EXECUTABLE} PRIVATE
-        SndFile::SndFile
+        SndFile::sndfile
     )
     target_compile_definitions(${EXECUTABLE} PRIVATE AUDIO_OAL_USE_SNDFILE)
 endif()
