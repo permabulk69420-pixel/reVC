@@ -61,9 +61,9 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
-# Keep the proven SDL/EGL/OpenXR ownership path. Link wrappers now intercept the
-# render boundary as well, allowing one simulation tick to render a left and a
-# right tracked eye before the projection layer is submitted.
+# Keep the proven SDL/EGL/OpenXR ownership path. Link wrappers intercept the
+# render boundary for per-eye replay and the completed pad update for a minimal
+# OpenXR Touch-to-CPad bridge.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -79,6 +79,7 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
+        "-Wl,--wrap=_ZN4CPad10UpdatePadsEv"
         "-Wl,--wrap=_Z29DoRWStuffStartOfFrame_Horizonsssssss"
         "-Wl,--wrap=_Z21DoRWStuffStartOfFramesssssss"
         "-Wl,--wrap=_Z19DoRWStuffEndOfFramev"
