@@ -100,8 +100,7 @@
 
         <!--
           Boot the known-good game renderer as an ordinary Android/SDL Activity.
-          Only after OpenXR has created a session and parked the SDL EGL context
-          is this same singleTask Activity relaunched through the immersive alias.
+          Its EGL context is parked before the separate immersive host starts.
         -->
         <activity
             android:name=".GameActivity"
@@ -117,17 +116,27 @@
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             tools:ignore="NonResizeableActivity" />
 
-        <activity-alias
-            android:name=".ImmersiveGameAlias"
-            android:enabled="true"
+        <!--
+          Real foreground OpenXR owner. This Activity creates no renderer; it is
+          launched only after GameActivity has parked the existing SDL EGLContext.
+        -->
+        <activity
+            android:name=".ImmersiveHostActivity"
+            android:configChanges="density|layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:excludeFromRecents="false"
             android:exported="false"
-            android:targetActivity=".GameActivity">
+            android:hardwareAccelerated="true"
+            android:launchMode="singleTop"
+            android:resizeableActivity="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            tools:ignore="NonResizeableActivity">
             <intent-filter>
                 <action android:name="com.revc.game.action.ENTER_IMMERSIVE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
             </intent-filter>
-        </activity-alias>
+        </activity>
 
         <provider
             android:name="androidx.core.content.FileProvider"
