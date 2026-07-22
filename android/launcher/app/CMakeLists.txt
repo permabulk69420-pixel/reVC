@@ -78,6 +78,7 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=RsEventHandler"
         "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
+        "-Wl,--wrap=RwCameraSetViewOffset"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
         "-Wl,--wrap=_ZN4CPad10UpdatePadsEv"
         "-Wl,--wrap=_ZN9CRenderer19ConstructRenderListEv"
