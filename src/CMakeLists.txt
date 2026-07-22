@@ -3,12 +3,13 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 file(GLOB_RECURSE ${PROJECT}_SOURCES "*.cpp" "*.h" "*.rc")
 
-# Android builds compile QuestOpenXRStereo.cpp, which includes the proven
-# QuestOpenXR.cpp implementation in the same translation unit and extends it
-# with a split begin/eye/end frame API. Do not compile the original twice.
+# Android builds compile QuestOpenXRControls.cpp. It includes the stereo layer,
+# which in turn includes the proven base runtime, keeping all private OpenXR
+# state in one translation unit while avoiding duplicate definitions.
 if(ANDROID)
     list(REMOVE_ITEM ${PROJECT}_SOURCES
-            "${CMAKE_CURRENT_SOURCE_DIR}/skel/android/QuestOpenXR.cpp")
+            "${CMAKE_CURRENT_SOURCE_DIR}/skel/android/QuestOpenXR.cpp"
+            "${CMAKE_CURRENT_SOURCE_DIR}/skel/android/QuestOpenXRStereo.cpp")
 endif()
 
 function(header_directories RETURN_LIST)
@@ -121,7 +122,7 @@ endif()
 if(${PROJECT}_WITH_LIBSNDFILE)
     find_package(SndFile REQUIRED)
     target_link_libraries(${EXECUTABLE} PRIVATE
-        SndFile::sndfile
+        SndFile::SndFile
     )
     target_compile_definitions(${EXECUTABLE} PRIVATE AUDIO_OAL_USE_SNDFILE)
 endif()
@@ -197,7 +198,6 @@ endif()
 
 if(LIBRW_PLATFORM_GL3 AND LIBRW_GL3_GFXLIB STREQUAL "GLFW")
 	include(CheckSymbolExists)
-
 	set(CMAKE_REQUIRED_LIBRARIES glfw)
 	set(CMAKE_REQUIRED_DEFINITIONS -DGLFW_EXPOSE_NATIVE_X11)
 	check_symbol_exists(glfwGetX11Display "GLFW/glfw3.h;GLFW/glfw3native.h" GLFW_HAS_X11)
