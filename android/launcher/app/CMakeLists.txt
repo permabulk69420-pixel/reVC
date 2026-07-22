@@ -61,10 +61,9 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
-# OpenXR is bolted onto the completed flat renderer. The link wrappers intercept
-# camera resize/presentation without replacing SDL device or EGL creation. The
-# Initialize wrapper promotes the already-created session through an immersive
-# alias only after the EGL context has been parked safely.
+# Keep the proven SDL/EGL/OpenXR ownership path. Link wrappers now intercept the
+# render boundary as well, allowing one simulation tick to render a left and a
+# right tracked eye before the projection layer is submitted.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -79,4 +78,14 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=RsEventHandler"
         "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
-        "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv")
+        "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
+        "-Wl,--wrap=_Z29DoRWStuffStartOfFrame_Horizonsssssss"
+        "-Wl,--wrap=_Z21DoRWStuffStartOfFramesssssss"
+        "-Wl,--wrap=_Z19DoRWStuffEndOfFramev"
+        "-Wl,--wrap=_Z11RenderScenev"
+        "-Wl,--wrap=_Z15RenderDebugShitv"
+        "-Wl,--wrap=_Z13RenderEffectsv"
+        "-Wl,--wrap=_Z13Render2dStuffv"
+        "-Wl,--wrap=_Z11RenderMenusv"
+        "-Wl,--wrap=_Z6DoFadev"
+        "-Wl,--wrap=_Z22Render2dStuffAfterFadev")
