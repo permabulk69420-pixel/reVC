@@ -1,6 +1,5 @@
 package com.revc.game;
 
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -18,21 +17,18 @@ import java.io.FileWriter;
 import java.io.IOException;
 
 /**
- * Immersive shell around the known-good flat SDL/reVC renderer.
- * SDL creates the real Android window and EGL context first; OpenXR adopts that
- * existing context only after RenderWare has created a valid camera target.
+ * Flat bootstrap shell around the known-good SDL/reVC renderer.
+ *
+ * SDL creates the real Android window and EGL context first. Native code then
+ * parks that exact context on a pbuffer before asking this Activity to launch
+ * the real IMMERSIVE_HMD host. The SDL thread keeps running while the host owns
+ * Android focus and OpenXR owns presentation.
  */
 public final class GameActivity extends SDLActivity {
     public static final String EXTRA_GAME_PATH = "com.revc.game.GAME_PATH";
-    private static final String ACTION_ENTER_IMMERSIVE =
+    static final String ACTION_ENTER_IMMERSIVE =
             "com.revc.game.action.ENTER_IMMERSIVE";
-    private static final String EXTRA_IMMERSIVE_HANDOFF =
-            "com.revc.game.IMMERSIVE_HANDOFF";
-    private static final String IMMERSIVE_ALIAS =
-            "com.revc.game.ImmersiveGameAlias";
     private static final String TAG = "reVC-XR";
-
-    private boolean immersiveAliasAcknowledged;
 
     @Override
     protected String[] getLibraries() {
@@ -41,9 +37,8 @@ public final class GameActivity extends SDLActivity {
 
     /**
      * SDLActivity invokes this before SDL.setupJNI(), surface creation and the
-     * SDL_main thread. Configure storage and give the OpenXR bridge an explicit
-     * global reference to this real GameActivity. SDL2 still owns its own JNI
-     * setup; this is only the Android context required by the OpenXR loader.
+     * SDL_main thread. Configure storage and give the native bridge an explicit
+     * global reference to this flat bootstrap Activity.
      */
     @Override
     public void loadLibraries() {
@@ -55,7 +50,7 @@ public final class GameActivity extends SDLActivity {
             REVC.setGamePath(path);
             REVC.initialize(this, path);
             appendBootstrapLog(path,
-                    "JAVA OpenXR Activity bridge configured before SDL surface startup");
+                    "JAVA flat GameActivity bridge configured before SDL surface startup");
         } catch (Throwable error) {
             appendBootstrapLog(path, "JAVA startup failed before SDL surface: "
                     + error.getClass().getName() + ": " + String.valueOf(error.getMessage()));
@@ -75,65 +70,39 @@ public final class GameActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        Log.i(TAG, "Starting normal SDL/reVC renderer before OpenXR handoff");
+        Log.i(TAG, "Starting normal SDL/reVC renderer before immersive host handoff");
         super.onCreate(savedInstanceState);
         if (!mBrokenLibraries) {
             appendBootstrapLog(gamePath(),
                     "JAVA SDL JNI setup complete; creating normal Android render surface");
             Log.i(TAG, "SDL JNI setup completed before surface creation");
         }
-        acknowledgeImmersiveAlias(getIntent());
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        acknowledgeImmersiveAlias(intent);
     }
 
     /**
-     * Called by the SDL render thread after OpenXR has created a session and
-     * parked the existing EGL context. Launching the alias targets this same
-     * singleTask Activity, so Android delivers onNewIntent instead of creating
-     * another renderer or another native thread.
+     * Called by the SDL render thread only after its existing EGL context has
+     * been rebound to a pbuffer. This starts a separate real immersive Activity;
+     * it does not recreate SDL, RenderWare, or the game thread.
      */
     public void requestImmersiveHandoff() {
         runOnUiThread(() -> {
             appendBootstrapLog(gamePath(),
-                    "JAVA launching existing GameActivity through IMMERSIVE_HMD alias");
+                    "JAVA launching real IMMERSIVE_HMD host after SDL context park");
             try {
-                Intent intent = new Intent(ACTION_ENTER_IMMERSIVE);
-                intent.setComponent(new ComponentName(getPackageName(), IMMERSIVE_ALIAS));
-                intent.putExtra(EXTRA_IMMERSIVE_HANDOFF, true);
+                Intent intent = new Intent(this, ImmersiveHostActivity.class);
+                intent.setAction(ACTION_ENTER_IMMERSIVE);
                 intent.putExtra(EXTRA_GAME_PATH, gamePath());
                 intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                 startActivity(intent);
             } catch (RuntimeException error) {
                 appendBootstrapLog(gamePath(),
-                        "JAVA immersive alias launch failed: "
+                        "JAVA immersive host launch failed: "
                                 + error.getClass().getName() + ": "
                                 + String.valueOf(error.getMessage()));
-                Log.e(TAG, "Unable to launch immersive Activity alias", error);
+                Log.e(TAG, "Unable to launch immersive host Activity", error);
             }
         });
-    }
-
-    private void acknowledgeImmersiveAlias(Intent intent) {
-        if (immersiveAliasAcknowledged || intent == null) {
-            return;
-        }
-        if (!intent.getBooleanExtra(EXTRA_IMMERSIVE_HANDOFF, false)
-                && !ACTION_ENTER_IMMERSIVE.equals(intent.getAction())) {
-            return;
-        }
-
-        immersiveAliasAcknowledged = true;
-        appendBootstrapLog(gamePath(),
-                "JAVA IMMERSIVE_HMD alias returned to existing GameActivity");
-        REVC.notifyImmersiveAliasReady();
     }
 
     /** Native shutdown callback used by the existing Android wrapper. */
@@ -147,8 +116,8 @@ public final class GameActivity extends SDLActivity {
 
     @Override
     protected void pauseNativeThread() {
-        if (xrOwnsPresentation() && !isFinishing() && !isDestroyed()) {
-            Log.i(TAG, "Ignoring Android pause after OpenXR took presentation ownership");
+        if (xrOwnsOrIsTakingPresentation() && !isFinishing() && !isDestroyed()) {
+            Log.i(TAG, "Ignoring Android pause during immersive handoff/OpenXR ownership");
             return;
         }
         super.pauseNativeThread();
@@ -156,7 +125,7 @@ public final class GameActivity extends SDLActivity {
 
     @Override
     protected void resumeNativeThread() {
-        if (xrOwnsPresentation() && !isFinishing() && !isDestroyed()) {
+        if (xrOwnsOrIsTakingPresentation() && !isFinishing() && !isDestroyed()) {
             return;
         }
         super.resumeNativeThread();
@@ -164,19 +133,21 @@ public final class GameActivity extends SDLActivity {
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
-        if (xrOwnsPresentation() && !isFinishing() && !isDestroyed()) {
-            Log.i(TAG, "OpenXR owns focus; ignoring Android window focus=" + hasFocus);
+        if (xrOwnsOrIsTakingPresentation() && !isFinishing() && !isDestroyed()) {
+            Log.i(TAG, "Immersive handoff/OpenXR owns focus; ignoring Android window focus="
+                    + hasFocus);
             return;
         }
         super.onWindowFocusChanged(hasFocus);
     }
 
-    private boolean xrOwnsPresentation() {
+    private boolean xrOwnsOrIsTakingPresentation() {
         if (mBrokenLibraries) {
             return false;
         }
         try {
-            return REVC.isOpenXrPresentationActive();
+            return REVC.isOpenXrHandoffActive()
+                    || REVC.isOpenXrPresentationActive();
         } catch (UnsatisfiedLinkError error) {
             return false;
         }
@@ -191,7 +162,7 @@ public final class GameActivity extends SDLActivity {
         return path.endsWith(File.separator) ? path : path + File.separator;
     }
 
-    private static void appendBootstrapLog(String gamePath, String message) {
+    static void appendBootstrapLog(String gamePath, String message) {
         try {
             File root = new File(gamePath);
             File userFiles = new File(root, "userfiles");
@@ -216,8 +187,8 @@ public final class GameActivity extends SDLActivity {
 
         @Override
         public void surfaceCreated(SurfaceHolder holder) {
-            if (xrOwnsPresentation() && !isFinishing()) {
-                Log.i(TAG, "Ignoring replacement Android surface while OpenXR is active");
+            if (xrOwnsOrIsTakingPresentation() && !isFinishing()) {
+                Log.i(TAG, "Ignoring replacement Android surface during immersive ownership");
                 return;
             }
             super.surfaceCreated(holder);
@@ -225,7 +196,7 @@ public final class GameActivity extends SDLActivity {
 
         @Override
         public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-            if (xrOwnsPresentation() && !isFinishing()) {
+            if (xrOwnsOrIsTakingPresentation() && !isFinishing()) {
                 mWidth = Math.max(1, width);
                 mHeight = Math.max(1, height);
                 return;
@@ -235,8 +206,8 @@ public final class GameActivity extends SDLActivity {
 
         @Override
         public void surfaceDestroyed(SurfaceHolder holder) {
-            if (xrOwnsPresentation() && !isFinishing()) {
-                Log.i(TAG, "Android surface retired; SDL thread remains on its parked EGL context");
+            if (xrOwnsOrIsTakingPresentation() && !isFinishing()) {
+                Log.i(TAG, "Flat Android surface retired; SDL remains on its parked EGL context");
                 mIsSurfaceReady = false;
                 return;
             }
