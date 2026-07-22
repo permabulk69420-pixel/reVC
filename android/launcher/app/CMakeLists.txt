@@ -61,9 +61,9 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
-# Preserve RenderWare's camera, camera raster and culling path. The only camera
-# wrapper now calls the real begin-update first, then redirects GLES drawing to
-# an independent capture FBO for mono OpenXR submission.
+# Keep SDL/EGL/OpenXR ownership and controls unchanged. Stereo starts before
+# ConstructRenderList so each eye gets its own culling, PreRender and world pass;
+# the raw GLES FBO is sized to the Quest runtime's recommended per-eye target.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -79,9 +79,9 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
-        "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
-        "-Wl,--wrap=_ZN11QuestOpenXR15SubmitStereoEyeEjjii"
         "-Wl,--wrap=_ZN4CPad10UpdatePadsEv"
+        "-Wl,--wrap=_ZN9CRenderer19ConstructRenderListEv"
+        "-Wl,--wrap=_ZN9CRenderer9PreRenderEv"
         "-Wl,--wrap=_Z29DoRWStuffStartOfFrame_Horizonsssssss"
         "-Wl,--wrap=_Z21DoRWStuffStartOfFramesssssss"
         "-Wl,--wrap=_Z19DoRWStuffEndOfFramev"
