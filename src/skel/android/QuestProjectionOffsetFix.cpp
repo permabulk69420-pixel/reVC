@@ -46,13 +46,19 @@ void LogProjectionCorrection(const RwV2d& input, const RwV2d& corrected) {
 
 } // namespace
 
-extern "C" RwCamera* __real_RwCameraSetViewOffset(
+// RwCameraSetViewOffset is exported by librw as this C++ symbol. Naming the
+// linker-generated real/wrap symbols explicitly avoids an extra round of C++
+// mangling around the already-mangled target name.
+extern "C" RwCamera*
+__real__Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE(
         RwCamera* camera, const RwV2d* offset);
 
-extern "C" RwCamera* __wrap_RwCameraSetViewOffset(
+extern "C" RwCamera*
+__wrap__Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE(
         RwCamera* camera, const RwV2d* offset) {
     if (offset == NULL || !QuestOpenXR::OwnsPresentation()) {
-        return __real_RwCameraSetViewOffset(camera, offset);
+        return __real__Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE(
+                camera, offset);
     }
 
     // librw's perspective frustum uses the opposite viewOffset sign from the
@@ -65,7 +71,8 @@ extern "C" RwCamera* __wrap_RwCameraSetViewOffset(
         gLoggedProjectionCorrection = true;
         LogProjectionCorrection(*offset, corrected);
     }
-    return __real_RwCameraSetViewOffset(camera, &corrected);
+    return __real__Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE(
+            camera, &corrected);
 }
 
 #endif
