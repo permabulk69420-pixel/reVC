@@ -61,9 +61,10 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
-# Keep the proven SDL/EGL/OpenXR ownership path. Link wrappers intercept the
-# render boundary, completed pad update, and a bounded visibility fallback that
-# preserves the completed left render before the experimental right-eye replay.
+# Keep the proven SDL/EGL/OpenXR ownership and Touch input paths. Do not wrap
+# psCameraBeginUpdate in this baseline: reVC renders once with its untouched
+# camera/culling state, then psCameraShowRaster submits the completed frame to
+# both OpenXR eyes through the proven legacy path.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -76,7 +77,6 @@ target_link_libraries(reVC PRIVATE
         GLESv3)
 target_link_options(reVC PRIVATE
         "-Wl,--wrap=RsEventHandler"
-        "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
         "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
