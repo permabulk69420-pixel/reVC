@@ -50,6 +50,27 @@ struct EyeView {
     int height;
 };
 
+// Small controller surface deliberately shaped like a conventional dual-stick
+// pad so reVC can consume Quest Touch input through its existing CPad logic.
+struct ControllerState {
+    bool active;
+    float leftStickX;
+    float leftStickY;
+    float rightStickX;
+    float rightStickY;
+    float leftTrigger;
+    float rightTrigger;
+    float leftGrip;
+    float rightGrip;
+    bool a;
+    bool b;
+    bool x;
+    bool y;
+    bool menu;
+    bool leftThumb;
+    bool rightThumb;
+};
+
 // Every function is called by SDL's existing render thread with SDL's GLES
 // context current. No native side thread and no second EGL context exist.
 bool Initialize();
@@ -67,6 +88,11 @@ bool SubmitStereoEye(uint32_t eye, unsigned int sourceFramebuffer,
                      int sourceWidth, int sourceHeight);
 FrameResult EndStereoFrame();
 bool StereoFrameActive();
+
+// Sync the attached Touch action set. Call once from the game input tick before
+// reading ControllerState; it is harmless before OpenXR has initialized.
+void RefreshControllerState();
+bool GetControllerState(ControllerState* state);
 
 void PollEvents();
 void Shutdown();
