@@ -53,7 +53,7 @@ find_package(OpenXR REQUIRED CONFIG)
 set(LIBRW_PLATFORM "GL3" CACHE STRING "librw platform" FORCE)
 set(LIBRW_GL3_GFXLIB "SDL2" CACHE STRING "librw window/input backend" FORCE)
 set(LIBRW_TOOLS OFF CACHE BOOL "Do not build desktop librw tools" FORCE)
-set(LIBRW_EXAMPLES OFF CACHE BOOL "Do not build librw examples" FORCE)
+set(LIBRW_EXAMPLES OFF CACHE BOOL "Do not build desktop librw examples" FORCE)
 set(LIBRW_INSTALL OFF CACHE BOOL "Do not install librw" FORCE)
 set(REVC_AUDIO "OAL" CACHE STRING "Use OpenAL audio backend" FORCE)
 set(REVC_VENDORED_LIBRW ON CACHE BOOL "Use vendored librw" FORCE)
@@ -61,9 +61,11 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
-# Keep SDL/EGL/OpenXR ownership and controls unchanged. Stereo starts before
-# ConstructRenderList so each eye gets its own culling, PreRender and world pass;
-# the raw GLES FBO is sized to the Quest runtime's recommended per-eye target.
+# Preserve the proven SDL/EGL/OpenXR ownership and per-eye render timing, but
+# return to the normal GTA camera and projection for this diagnostic baseline.
+# Only a mild fixed left/right camera separation remains. The capture keeps the
+# original game aspect and the final eye copy letterboxes into Quest's nearly
+# square swapchains instead of stretching the world vertically.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -78,11 +80,11 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=RsEventHandler"
         "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
+        "-Wl,--wrap=_Z21RwCameraSetViewWindowPN2rw6CameraEPKNS_3V2dE"
         "-Wl,--wrap=_Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE"
-        "-Wl,--wrap=_ZN7CCamera22CalculateDerivedValuesEv"
+        "-Wl,--wrap=glBlitFramebuffer"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
         "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
-        "-Wl,--wrap=_ZN11QuestOpenXR14EndStereoFrameEv"
         "-Wl,--wrap=_ZN4CPad10UpdatePadsEv"
         "-Wl,--wrap=_ZN9CRenderer19ConstructRenderListEv"
         "-Wl,--wrap=_ZN9CRenderer9PreRenderEv"
