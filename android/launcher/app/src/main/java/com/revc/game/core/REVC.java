@@ -9,6 +9,7 @@ public final class REVC {
 
     public static native void setGamePath(String path);
     public static native void initialize(Activity activity, String path);
+    public static native void registerImmersiveHost(Activity activity);
+    public static native boolean isOpenXrHandoffActive();
     public static native boolean isOpenXrPresentationActive();
-    public static native void notifyImmersiveAliasReady();
 }
