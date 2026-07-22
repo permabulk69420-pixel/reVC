@@ -79,6 +79,7 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
         "-Wl,--wrap=_Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE"
+        "-Wl,--wrap=_ZN7CCamera22CalculateDerivedValuesEv"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
         "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
         "-Wl,--wrap=_ZN11QuestOpenXR14EndStereoFrameEv"
