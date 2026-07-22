@@ -3,7 +3,6 @@
 #include <jni.h>
 #include <android/log.h>
 #include <EGL/egl.h>
-#include <GLES3/gl3.h>
 
 #include <cerrno>
 #include <cstdarg>
