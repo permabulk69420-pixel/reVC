@@ -10,6 +10,7 @@
 #include "main.h"
 #include "Camera.h"
 #include "Draw.h"
+class CPtrList;
 #include "PlayerInfo.h"
 #include "PlayerPed.h"
 #include "Bones.h"
@@ -271,9 +272,9 @@ bool BuildPlayerHeadCamera() {
     forward.Normalise();
 
     CVector up(0.0f, 0.0f, 1.0f);
-    CVector right = CrossProduct(forward, up);
-    right.Normalise();
-    up = CrossProduct(right, forward);
+    CVector physicalRight = CrossProduct(forward, up);
+    physicalRight.Normalise();
+    up = CrossProduct(physicalRight, forward);
     up.Normalise();
 
     CVector headPosition = player->GetNodePosition(PED_HEAD);
@@ -300,7 +301,7 @@ bool BuildPlayerHeadCamera() {
     CMatrix firstPerson = gOriginalCameraMatrix;
     firstPerson.GetPosition() = headPosition;
     firstPerson.GetForward() = forward;
-    firstPerson.GetRight() = right;
+    firstPerson.GetRight() = CrossProduct(up, forward);
     firstPerson.GetUp() = up;
     TheCamera.GetMatrix() = firstPerson;
     TheCamera.CalculateDerivedValues();
