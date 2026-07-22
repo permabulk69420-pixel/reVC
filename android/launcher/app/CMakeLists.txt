@@ -61,10 +61,9 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
-# Keep the proven SDL/EGL/OpenXR ownership and Touch input paths. Do not wrap
-# psCameraBeginUpdate in this baseline: reVC renders once with its untouched
-# camera/culling state, then psCameraShowRaster submits the completed frame to
-# both OpenXR eyes through the proven legacy path.
+# Preserve RenderWare's camera, camera raster and culling path. The only camera
+# wrapper now calls the real begin-update first, then redirects GLES drawing to
+# an independent capture FBO for mono OpenXR submission.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -77,6 +76,7 @@ target_link_libraries(reVC PRIVATE
         GLESv3)
 target_link_options(reVC PRIVATE
         "-Wl,--wrap=RsEventHandler"
+        "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
         "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
