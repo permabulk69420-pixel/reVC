@@ -4,6 +4,15 @@
 
 #include <stdint.h>
 
+// reVC's common header defines debug(...) as a macro. The OpenXR bridge uses
+// ordinary descriptive member names and does not use that logging macro.
+#ifdef debug
+#undef debug
+#endif
+
+// RenderWare state reset used when replaying the captured pass for eye 1.
+void DefinedState(void);
+
 namespace QuestOpenXR {
 
 enum class FrameResult {
