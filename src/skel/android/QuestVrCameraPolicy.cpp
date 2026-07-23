@@ -7,57 +7,38 @@
 namespace {
 
 const char* const kTag = "reVC-XR";
-bool gLoggedUntouchedCameraBaseline = false;
-
-void ApplyUntouchedCameraBaseline(QuestOpenXR::EyeView* eyes,
-                                  uint32_t eyeCount) {
-    if (eyes == NULL || eyeCount == 0) {
-        return;
-    }
-
-    // Mark the eye views invalid for the game-camera bridge. The OpenXR runtime
-    // still owns and submits both eye swapchains, but ApplyEyeCamera(),
-    // ApplyEyeProjection() and the stereo capture-size override all return
-    // without modifying Vice City's native camera or RenderWare projection.
-    for (uint32_t eye = 0; eye < eyeCount; ++eye) {
-        QuestOpenXR::EyeView& view = eyes[eye];
-        view.valid = false;
-        view.orientation[0] = 0.0f;
-        view.orientation[1] = 0.0f;
-        view.orientation[2] = 0.0f;
-        view.orientation[3] = 1.0f;
-        view.position[0] = 0.0f;
-        view.position[1] = 0.0f;
-        view.position[2] = 0.0f;
-    }
-
-    if (!gLoggedUntouchedCameraBaseline) {
-        gLoggedUntouchedCameraBaseline = true;
-        __android_log_write(
-                ANDROID_LOG_INFO, kTag,
-                "untouched-camera baseline: game pose, FOV and RenderWare projection injection disabled");
-    }
-}
+bool gLoggedSinglePassBaseline = false;
 
 } // namespace
 
-extern "C" QuestOpenXR::StereoFrameResult
-__real__ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj(
-        QuestOpenXR::EyeView* eyes, uint32_t eyeCapacity,
-        uint32_t* eyeCount);
-
+// The immersive stereo bridge normally starts an OpenXR frame before reVC
+// constructs its render list, saves/restores TheCamera, and manually replays the
+// scene for the right eye. That replay is the leading suspect for the cutscene
+// blur and persistent camera corruption: cutscene fades, motion blur and other
+// render state have already been consumed by the first pass.
+//
+// For this control build, never enter that path. reVC renders exactly one normal
+// frame with its native camera and projection. psCameraShowRaster then submits
+// the completed capture through the proven mono OpenXR path, which copies the
+// same untouched image to both eye swapchains. QuestOpenXRScreenBaseline rewrites
+// those swapchains as eye-specific 16:9 quad layers at xrEndFrame.
 extern "C" QuestOpenXR::StereoFrameResult
 __wrap__ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj(
         QuestOpenXR::EyeView* eyes, uint32_t eyeCapacity,
         uint32_t* eyeCount) {
-    const QuestOpenXR::StereoFrameResult result =
-            __real__ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj(
-                    eyes, eyeCapacity, eyeCount);
-    if (result == QuestOpenXR::StereoFrameResult::Render &&
-        eyes != NULL && eyeCount != NULL && *eyeCount > 0) {
-        ApplyUntouchedCameraBaseline(eyes, *eyeCount);
+    (void)eyes;
+    (void)eyeCapacity;
+    if (eyeCount != NULL) {
+        *eyeCount = 0;
     }
-    return result;
+
+    if (!gLoggedSinglePassBaseline) {
+        gLoggedSinglePassBaseline = true;
+        __android_log_write(
+                ANDROID_LOG_INFO, kTag,
+                "single-pass native-camera baseline: stereo replay disabled; one untouched reVC frame copied to both eyes");
+    }
+    return QuestOpenXR::StereoFrameResult::Inactive;
 }
 
 #endif
