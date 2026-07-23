@@ -7,12 +7,14 @@
 #include "common.h"
 #include "rwcore.h"
 #include "main.h"
+#include "Camera.h"
 #include "QuestOpenXR.h"
 
 namespace {
 
 const char* const kTag = "reVC-XR";
-bool gLoggedBasisRepair = false;
+bool gLoggedGameBasisRepair = false;
+bool gLoggedRenderWareBasisRepair = false;
 
 bool NormalizeSafe(CVector* value) {
     if (value == nil) {
@@ -31,7 +33,71 @@ float BasisDeterminant(const CVector& right, const CVector& forward,
     return DotProduct(right, CrossProduct(forward, up));
 }
 
-void RepairCameraBasis(RwFrame* frame) {
+bool BuildNativeBasis(const CVector& sourceForward, const CVector& sourceUp,
+                      CVector* rightOut, CVector* forwardOut,
+                      CVector* upOut) {
+    CVector forward = sourceForward;
+    CVector up = sourceUp;
+    if (!NormalizeSafe(&forward)) {
+        return false;
+    }
+
+    // Remove any accumulated forward component from up, then derive reVC's
+    // native right/forward/up basis. For Vice City's default axes,
+    // forward x up = right.
+    up -= forward * DotProduct(up, forward);
+    if (!NormalizeSafe(&up)) {
+        return false;
+    }
+
+    CVector right = CrossProduct(forward, up);
+    if (!NormalizeSafe(&right)) {
+        return false;
+    }
+    up = CrossProduct(right, forward);
+    if (!NormalizeSafe(&up)) {
+        return false;
+    }
+
+    *rightOut = right;
+    *forwardOut = forward;
+    *upOut = up;
+    return true;
+}
+
+void RepairGameCameraBasis(CCamera* camera) {
+    if (camera == nil) {
+        return;
+    }
+
+    CMatrix& matrix = camera->GetMatrix();
+    const CVector originalRight = matrix.GetRight();
+    const CVector originalForward = matrix.GetForward();
+    const CVector originalUp = matrix.GetUp();
+
+    CVector right;
+    CVector forward;
+    CVector up;
+    if (!BuildNativeBasis(originalForward, originalUp,
+                          &right, &forward, &up)) {
+        return;
+    }
+
+    matrix.GetRight() = right;
+    matrix.GetForward() = forward;
+    matrix.GetUp() = up;
+
+    if (!gLoggedGameBasisRepair) {
+        gLoggedGameBasisRepair = true;
+        __android_log_print(
+                ANDROID_LOG_INFO, kTag,
+                "internal GTA camera basis repaired before CalculateDerivedValues: determinant %.4f -> %.4f",
+                BasisDeterminant(originalRight, originalForward, originalUp),
+                BasisDeterminant(right, forward, up));
+    }
+}
+
+void RepairRenderWareCameraBasis(RwFrame* frame) {
     if (frame == nil) {
         return;
     }
@@ -44,30 +110,12 @@ void RepairCameraBasis(RwFrame* frame) {
     const CVector originalRight = *RwMatrixGetRight(matrix);
     const CVector originalForward = *RwMatrixGetAt(matrix);
     const CVector originalUp = *RwMatrixGetUp(matrix);
-    const float originalDeterminant = BasisDeterminant(
-            originalRight, originalForward, originalUp);
 
-    CVector forward = originalForward;
-    CVector up = originalUp;
-    if (!NormalizeSafe(&forward)) {
-        return;
-    }
-
-    // Gram-Schmidt the up vector against forward, then derive the remaining
-    // axes in reVC's native right/forward/up convention. The old stereo path
-    // calculated forward x up correctly, but then stored up x forward as the
-    // camera right vector, reflecting the basis across the camera plane.
-    up -= forward * DotProduct(up, forward);
-    if (!NormalizeSafe(&up)) {
-        return;
-    }
-
-    CVector right = CrossProduct(forward, up);
-    if (!NormalizeSafe(&right)) {
-        return;
-    }
-    up = CrossProduct(right, forward);
-    if (!NormalizeSafe(&up)) {
+    CVector right;
+    CVector forward;
+    CVector up;
+    if (!BuildNativeBasis(originalForward, originalUp,
+                          &right, &forward, &up)) {
         return;
     }
 
@@ -77,13 +125,13 @@ void RepairCameraBasis(RwFrame* frame) {
     RwMatrixUpdate(matrix);
     RwFrameUpdateObjects(frame);
 
-    if (!gLoggedBasisRepair) {
-        gLoggedBasisRepair = true;
-        const float repairedDeterminant = BasisDeterminant(right, forward, up);
+    if (!gLoggedRenderWareBasisRepair) {
+        gLoggedRenderWareBasisRepair = true;
         __android_log_print(
                 ANDROID_LOG_INFO, kTag,
-                "camera basis repaired after orthonormalize: determinant %.4f -> %.4f, dots RF=%.4f RU=%.4f FU=%.4f",
-                originalDeterminant, repairedDeterminant,
+                "RenderWare camera basis verified after orthonormalize: determinant %.4f -> %.4f, dots RF=%.4f RU=%.4f FU=%.4f",
+                BasisDeterminant(originalRight, originalForward, originalUp),
+                BasisDeterminant(right, forward, up),
                 DotProduct(right, forward), DotProduct(right, up),
                 DotProduct(forward, up));
     }
@@ -91,9 +139,20 @@ void RepairCameraBasis(RwFrame* frame) {
 
 } // namespace
 
-// librw exposes this compatibility helper as a C++ free function. Wrap the
-// exact symbol so the normal reVC camera update remains untouched everywhere
-// except the active OpenXR game camera.
+// ApplyEyeCamera writes TheCamera's basis and immediately calls this member.
+// Repairing only the later RenderWare copy left GTA's own camera reflected and
+// allowed the bad orientation to leak into the following frame and cutscenes.
+extern "C" void
+__real__ZN7CCamera22CalculateDerivedValuesEv(CCamera* camera);
+
+extern "C" void
+__wrap__ZN7CCamera22CalculateDerivedValuesEv(CCamera* camera) {
+    if (QuestOpenXR::StereoFrameActive() && camera == &TheCamera) {
+        RepairGameCameraBasis(camera);
+    }
+    __real__ZN7CCamera22CalculateDerivedValuesEv(camera);
+}
+
 extern "C" RwFrame*
 __real__Z21RwFrameOrthoNormalizePN2rw5FrameE(RwFrame* frame);
 
@@ -104,7 +163,7 @@ __wrap__Z21RwFrameOrthoNormalizePN2rw5FrameE(RwFrame* frame) {
 
     if (QuestOpenXR::StereoFrameActive() && Scene.camera != nil &&
         frame == RwCameraGetFrame(Scene.camera)) {
-        RepairCameraBasis(frame);
+        RepairRenderWareCameraBasis(frame);
     }
     return result;
 }
