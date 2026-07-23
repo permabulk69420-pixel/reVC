@@ -61,11 +61,10 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
-# Preserve the proven SDL/EGL/OpenXR ownership and per-eye render timing, but
-# return to the normal GTA camera and projection for this diagnostic baseline.
-# Only a mild fixed left/right camera separation remains. The capture keeps the
-# original game aspect and the final eye copy letterboxes into Quest's nearly
-# square swapchains instead of stretching the world vertically.
+# Preserve the proven SDL/EGL/OpenXR ownership and per-eye replay timing. This
+# diagnostic keeps tracked head pose disabled, but renders each eye with the
+# same asymmetric OpenXR frustum that is submitted to the compositor and repairs
+# GTA's internal camera basis before derived camera state is calculated.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -83,6 +82,7 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=_Z21RwCameraSetViewWindowPN2rw6CameraEPKNS_3V2dE"
         "-Wl,--wrap=_Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE"
         "-Wl,--wrap=_Z21RwFrameOrthoNormalizePN2rw5FrameE"
+        "-Wl,--wrap=_ZN7CCamera22CalculateDerivedValuesEv"
         "-Wl,--wrap=glBlitFramebuffer"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
         "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
