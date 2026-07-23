@@ -8,15 +8,16 @@
 
 namespace {
 
-bool gLoggedNormalProjection = false;
+bool gLoggedMatchedProjection = false;
 
-void LogNormalProjectionOnce() {
-    if (gLoggedNormalProjection) {
+void LogMatchedProjectionOnce() {
+    if (gLoggedMatchedProjection) {
         return;
     }
-    gLoggedNormalProjection = true;
-    __android_log_write(ANDROID_LOG_INFO, "reVC-XR",
-            "normal-camera stereo baseline preserves the game's RenderWare viewWindow and viewOffset");
+    gLoggedMatchedProjection = true;
+    __android_log_write(
+            ANDROID_LOG_INFO, "reVC-XR",
+            "OpenXR projection enabled: RenderWare viewWindow/viewOffset now match the submitted eye frusta");
 }
 
 } // namespace
@@ -29,8 +30,7 @@ extern "C" RwCamera*
 __wrap__Z21RwCameraSetViewWindowPN2rw6CameraEPKNS_3V2dE(
         RwCamera* camera, const RwV2d* window) {
     if (QuestOpenXR::StereoFrameActive()) {
-        LogNormalProjectionOnce();
-        return camera;
+        LogMatchedProjectionOnce();
     }
     return __real__Z21RwCameraSetViewWindowPN2rw6CameraEPKNS_3V2dE(
             camera, window);
@@ -43,10 +43,6 @@ __real__Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE(
 extern "C" RwCamera*
 __wrap__Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE(
         RwCamera* camera, const RwV2d* offset) {
-    if (QuestOpenXR::StereoFrameActive()) {
-        LogNormalProjectionOnce();
-        return camera;
-    }
     return __real__Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE(
             camera, offset);
 }
