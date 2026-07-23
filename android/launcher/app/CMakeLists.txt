@@ -61,10 +61,10 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
-# Preserve the proven SDL/EGL/OpenXR ownership and per-eye replay timing. This
-# diagnostic keeps tracked head pose disabled, but renders each eye with the
-# same asymmetric OpenXR frustum that is submitted to the compositor and repairs
-# GTA's internal camera basis before derived camera state is calculated.
+# Zero-transform diagnostic: preserve the proven SDL/EGL/OpenXR ownership and
+# two-pass eye replay, but leave Vice City's game camera and RenderWare projection
+# untouched. xrEndFrame is wrapped only to present the completed eye textures on
+# eye-specific 16:9 quad layers rather than as an immersive projection.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -81,8 +81,7 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=psCameraShowRaster"
         "-Wl,--wrap=_Z21RwCameraSetViewWindowPN2rw6CameraEPKNS_3V2dE"
         "-Wl,--wrap=_Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE"
-        "-Wl,--wrap=_Z21RwFrameOrthoNormalizePN2rw5FrameE"
-        "-Wl,--wrap=_ZN7CCamera22CalculateDerivedValuesEv"
+        "-Wl,--wrap=xrEndFrame"
         "-Wl,--wrap=glBlitFramebuffer"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
         "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
