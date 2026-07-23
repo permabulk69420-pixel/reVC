@@ -82,6 +82,7 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=psCameraShowRaster"
         "-Wl,--wrap=_Z21RwCameraSetViewWindowPN2rw6CameraEPKNS_3V2dE"
         "-Wl,--wrap=_Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE"
+        "-Wl,--wrap=_Z21RwFrameOrthoNormalizePN2rw5FrameE"
         "-Wl,--wrap=glBlitFramebuffer"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
         "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
