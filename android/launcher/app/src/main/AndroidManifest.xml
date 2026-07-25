@@ -7,8 +7,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission-sdk-23 android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission-sdk-23 android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -22,26 +22,25 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
 
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
 
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
-    <!-- OpenGL ES 2.0 -->
     <uses-feature
-        android:glEsVersion="0x00020000"
-        android:required="true"/>
-
-    <!-- Touchscreen support -->
+        android:glEsVersion="0x00030000"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.vr.headtracking"
+        android:required="false"
+        android:version="1" />
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
-
-    <!-- Game controller support -->
     <uses-feature
         android:name="android.hardware.bluetooth"
         android:required="false" />
@@ -51,8 +50,6 @@
     <uses-feature
         android:name="android.hardware.usb.host"
         android:required="false" />
-
-    <!-- Audio recording support -->
     <uses-feature
         android:name="android.hardware.microphone"
         android:required="false" />
@@ -64,6 +61,16 @@
         android:resizeable="true"
         android:smallScreens="true" />
 
+    <queries>
+        <provider android:authorities="org.khronos.openxr.runtime_broker;org.khronos.openxr.system_runtime_broker" />
+        <intent>
+            <action android:name="org.khronos.openxr.OpenXRRuntimeService" />
+        </intent>
+        <intent>
+            <action android:name="org.khronos.openxr.OpenXRApiLayerService" />
+        </intent>
+    </queries>
+
     <application
         android:gwpAsanMode="always"
         android:isGame="true"
@@ -71,6 +78,7 @@
         android:allowAudioPlaybackCapture="true"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:extractNativeLibs="true"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -86,24 +94,47 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
+        <!--
+          Boot the known-good game renderer as an ordinary Android/SDL Activity.
+          Its EGL context is parked before the separate immersive host starts.
+        -->
         <activity
-            android:name="org.libsdl.app.SDLActivity"
+            android:name=".GameActivity"
             android:alwaysRetainTaskState="true"
-            android:launchMode="singleInstance"
+            android:configChanges="density|layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:exported="false"
             android:hardwareAccelerated="true"
             android:largeHeap="true"
-            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:launchMode="singleTask"
             android:preferMinimalPostProcessing="true"
-            android:exported="true">
+            android:resizeableActivity="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            tools:ignore="NonResizeableActivity" />
 
+        <!--
+          Real foreground OpenXR owner. This Activity creates no renderer; it is
+          launched only after GameActivity has parked the existing SDL EGLContext.
+        -->
+        <activity
+            android:name=".ImmersiveHostActivity"
+            android:configChanges="density|layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:excludeFromRecents="false"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:launchMode="singleTop"
+            android:resizeableActivity="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            tools:ignore="NonResizeableActivity">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="com.revc.game.action.ENTER_IMMERSIVE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
             </intent-filter>
         </activity>
 
