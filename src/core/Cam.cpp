@@ -2603,6 +2603,14 @@ CCam::Process_1stPerson(const CVector &CameraTarget, float TargetOrientation, fl
 		// far you can physically look up or down would be worse than anything
 		// it protects against.
 		{
+			// Keep retrying the recentre until it takes. The tracked pose is
+			// published by the stereo bridge and may not exist yet on the frame
+			// this mode is entered, and a recentre that silently failed left the
+			// player rotated by the mapping's constant offset.
+			if(!QuestVrCamera::IsRecentred())
+				QuestVrCamera::RecentreToPlayerHeading(
+					((CPed*)CamTargetEntity)->m_fRotationCur + HALFPI);
+
 			float vrYaw = 0.0f;
 			float vrPitch = 0.0f;
 			if(QuestVrCamera::GetHeadAngles(&vrYaw, &vrPitch)){

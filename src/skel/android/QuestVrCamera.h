@@ -28,6 +28,10 @@ namespace QuestVrCamera {
 // first-person camera should drive the game camera.
 bool IsHeadTrackingActive(void);
 
+// True once RecentreToPlayerHeading has established the yaw reference. Until
+// then GetHeadAngles refuses, so callers must keep retrying the recentre.
+bool IsRecentred(void);
+
 // Head yaw and pitch in GTA's convention: yaw measured in the XY plane, pitch
 // positive upward, both radians, already mapped out of OpenXR's axes and
 // through the recentre offset. Returns false when no pose is available, in

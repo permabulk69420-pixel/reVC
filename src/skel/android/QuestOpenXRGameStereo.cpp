@@ -894,8 +894,16 @@ bool IsHeadTrackingActive(void) {
     return gHeadPoseValid;
 }
 
+bool IsRecentred(void) {
+    return gHeadYawOffsetSet;
+}
+
 bool GetHeadAngles(float* yaw, float* pitch) {
-    if (!gHeadPoseValid) {
+    // Refuse until recentred. The axis mapping puts a head looking straight
+    // ahead at +90 degrees in GTA's Beta convention, and the recentre offset is
+    // what cancels that. Handing back angles before it has been established
+    // starts the player rotated by exactly that amount.
+    if (!gHeadPoseValid || !gHeadYawOffsetSet) {
         return false;
     }
     const Float3 forward =
@@ -942,13 +950,21 @@ bool GetHeadPositionOffset(CVector* offset) {
 
 void RecentreToPlayerHeading(float playerHeadingRadians) {
     if (!gHeadPoseValid) {
+        // No pose yet. Leave the offset unset so GetHeadAngles keeps refusing
+        // and the caller retries, rather than locking in a wrong reference.
         return;
     }
-    gHeadYawOffset = 0.0f;
-    float rawYaw = 0.0f;
-    if (!GetHeadAngles(&rawYaw, NULL)) {
+    // Compute the raw yaw directly: GetHeadAngles refuses until the offset is
+    // established, which is exactly what this function is establishing.
+    const Float3 forward =
+            RotateByQuaternion(gHeadOrientation, Float3{0.0f, 0.0f, -1.0f});
+    float fx, fy, fz;
+    MapXrAxesToGame(forward, &fx, &fy, &fz);
+    if (sqrtf(fx * fx + fy * fy) < 1.0e-4f) {
+        // Looking straight up or down; yaw is meaningless. Retry next frame.
         return;
     }
+    const float rawYaw = atan2f(fy, fx);
     gHeadYawOffset = playerHeadingRadians - rawYaw;
     gHeadYawOffsetSet = true;
     BridgeLog("VR camera recentred: head yaw %.1f deg aligned to player heading %.1f deg",
