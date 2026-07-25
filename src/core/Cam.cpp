@@ -29,6 +29,9 @@
 #include "DMAudio.h"
 #include "Bike.h"
 #include "Pickups.h"
+#ifdef ANDROID
+#include "QuestVrCamera.h"
+#endif
 
 bool PrintDebugCode = false;
 int16 DebugCamMode;
@@ -2554,6 +2557,12 @@ CCam::Process_1stPerson(const CVector &CameraTarget, float TargetOrientation, fl
 			// static DPadHorizontal unused
 			m_bCollisionChecksOn = true;
 			ResetStatics = false;
+#ifdef ANDROID
+			// Align where the user is physically looking with where the player
+			// is facing, at the moment the camera enters their head.
+			QuestVrCamera::RecentreToPlayerHeading(
+				((CPed*)CamTargetEntity)->m_fRotationCur + HALFPI);
+#endif
 		}
 
 		CamTargetEntity->GetMatrix().UpdateRW();
@@ -2584,6 +2593,40 @@ CCam::Process_1stPerson(const CVector &CameraTarget, float TargetOrientation, fl
 		while(Beta < -PI) Beta += 2*PI;
 		if(Alpha > DEGTORAD(60.0f)) Alpha = DEGTORAD(60.0f);
 		else if(Alpha < -DEGTORAD(89.5f)) Alpha = -DEGTORAD(89.5f);
+
+#ifdef ANDROID
+		// In VR the headset decides where you look, not the right stick.
+		// Overriding Beta and Alpha rather than Front means everything below
+		// this point - the line of sight checks, the near plane fixes, Front
+		// itself - carries on working exactly as it does on a flat screen.
+		// The pitch clamps above are deliberately not reapplied: limiting how
+		// far you can physically look up or down would be worse than anything
+		// it protects against.
+		{
+			// Keep retrying the recentre until it takes. The tracked pose is
+			// published by the stereo bridge and may not exist yet on the frame
+			// this mode is entered, and a recentre that silently failed left the
+			// player rotated by the mapping's constant offset.
+			if(!QuestVrCamera::IsRecentred())
+				QuestVrCamera::RecentreToPlayerHeading(
+					((CPed*)CamTargetEntity)->m_fRotationCur + HALFPI);
+
+			float vrYaw = 0.0f;
+			float vrPitch = 0.0f;
+			if(QuestVrCamera::GetHeadAngles(&vrYaw, &vrPitch)){
+				Beta = vrYaw;
+				Alpha = vrPitch;
+				while(Beta >= PI) Beta -= 2*PI;
+				while(Beta < -PI) Beta += 2*PI;
+
+				// Head translation within a seated or standing volume. Source
+				// is already the head bone, so this is a small offset on top.
+				CVector headOffset;
+				if(QuestVrCamera::GetHeadPositionOffset(&headOffset))
+					Source += headOffset;
+			}
+		}
+#endif
 
 		TargetCoors.x = 3.0f * Cos(Alpha) * Cos(Beta) + Source.x;
 		TargetCoors.y = 3.0f * Cos(Alpha) * Sin(Beta) + Source.y;

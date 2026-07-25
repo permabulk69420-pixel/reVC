@@ -33,6 +33,9 @@
 #include "Debug.h"
 #include "GenericGameStorage.h"
 #include "Camera.h"
+#ifdef ANDROID
+#include "QuestVrCamera.h"
+#endif
 
 enum
 {
@@ -1044,6 +1047,14 @@ CCamera::CamControl(void)
 
 			if(!FindPlayerPed()->IsPedInControl() || FindPlayerPed()->m_fMoveSpeed > 0.0f)
 				m_bFirstPersonBeingUsed = false;
+#ifdef ANDROID
+			// In VR first person is the mode, not a temporary look-around. The
+			// stock path above drops out the moment the player moves or presses
+			// anything and times out after 2850ms, which would repeatedly yank
+			// the camera out of the player's head mid-session.
+			if(QuestVrCamera::IsHeadTrackingActive() && pTargetEntity->IsPed())
+				m_bFirstPersonBeingUsed = true;
+#endif
 			if(m_bFirstPersonBeingUsed){
 				ReqMode = CCam::MODE_1STPERSON;
 				CPad::GetPad(0)->DisablePlayerControls |= PLAYERCONTROL_CAMERA;
