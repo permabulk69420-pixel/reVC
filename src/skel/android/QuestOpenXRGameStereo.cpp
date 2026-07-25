@@ -106,6 +106,10 @@ struct HookCounters {
 
 HookCounters gHooks = {0, 0, 0, 0, 0};
 
+// Bounded so the geometry report cannot flood logcat during a session.
+unsigned int gGeometryReports = 0;
+unsigned int gCameraReports = 0;
+
 void OpenBridgeLog() {
     if (gBridgeLog != NULL) {
         return;
@@ -546,6 +550,21 @@ void ApplyEyeCamera(uint32_t eyeIndex) {
     if (halfHorizontal > 0.01f) {
         CDraw::SetFOV(halfHorizontal * 2.0f * 180.0f / PI);
     }
+
+    // The game camera the frame started with, against the basis we replaced it
+    // with. If the view starts aimed at the ground, comparing these two says
+    // whether the XR orientation is wrong or the game basis it was built on was.
+    if (gCameraReports < 8) {
+        ++gCameraReports;
+        const CVector& savedForward = gSavedCameraMatrix.GetForward();
+        BridgeLog("eye%u basis game fwd=%.2f,%.2f,%.2f -> xr fwd=%.2f,%.2f,%.2f"
+                  " up=%.2f,%.2f,%.2f | fov %.1f -> %.1f",
+                  eyeIndex,
+                  savedForward.x, savedForward.y, savedForward.z,
+                  forward.x, forward.y, forward.z, up.x, up.y, up.z,
+                  gSavedFov, CDraw::GetFOV());
+    }
+
     TheCamera.CalculateDerivedValues();
     PushGameCameraToRenderWare();
 }
@@ -568,7 +587,28 @@ void ApplyEyeProjection(RwCamera* camera, uint32_t eyeIndex) {
         0.5f * (tanRight + tanLeft),
         0.5f * (tanUp + tanDown)
     };
-    if (viewWindow.x > 0.01f && viewWindow.y > 0.01f) {
+
+    // What the game left on the camera before we override it. CameraSize()
+    // in rw/RwHelper.cpp rewrites viewWindow from CDraw::GetScaledFOV() every
+    // frame inside DoRWStuffStartOfFrame, and never touches viewOffset, so the
+    // two can disagree. Log both so a zoomed or skewed view can be attributed
+    // to a number rather than guessed at.
+    const RwV2d* existingWindow = RwCameraGetViewWindow(camera);
+    const bool applied = viewWindow.x > 0.01f && viewWindow.y > 0.01f;
+    if (gGeometryReports < 8) {
+        ++gGeometryReports;
+        BridgeLog("eye%u fov L=%.1f R=%.1f U=%.1f D=%.1f deg | game vw=%.3f,%.3f"
+                  " -> xr vw=%.3f,%.3f off=%.3f,%.3f applied=%d | fov=%.1f target=%dx%d",
+                  eyeIndex,
+                  eye.angleLeft * 180.0f / PI, eye.angleRight * 180.0f / PI,
+                  eye.angleUp * 180.0f / PI, eye.angleDown * 180.0f / PI,
+                  existingWindow == nil ? -1.0f : existingWindow->x,
+                  existingWindow == nil ? -1.0f : existingWindow->y,
+                  viewWindow.x, viewWindow.y, viewOffset.x, viewOffset.y,
+                  applied ? 1 : 0, CDraw::GetFOV(), eye.width, eye.height);
+    }
+
+    if (applied) {
         RwCameraSetViewWindow(camera, &viewWindow);
         RwCameraSetViewOffset(camera, &viewOffset);
     }
