@@ -809,6 +809,28 @@ bool BeginLeftEyeBeforeCulling() {
     ResetCapturedPass(StartMode::None);
 
     if (gStereoShouldRender && gEyeCount >= 2) {
+        // The capture target must match the eye swapchain exactly. It is also
+        // created at an aspect-fitted size by the mono path, and whichever size
+        // it happens to hold when a stereo frame starts is what gets blitted to
+        // the swapchain. A mismatch there is a scaling blit, and once the
+        // aspect gap exceeds the fitter's threshold the content is letterboxed
+        // into a sub-region while the submitted FOV still claims the whole
+        // image, so the content and the declared angle disagree.
+        if (Scene.camera != nil &&
+            (gCaptureWidth != gEyes[0].width ||
+             gCaptureHeight != gEyes[0].height)) {
+            BridgeLog("resizing capture target %dx%d -> %dx%d to match the eye swapchain",
+                      gCaptureWidth, gCaptureHeight,
+                      gEyes[0].width, gEyes[0].height);
+            if (!CreateCaptureTarget(Scene.camera, gEyes[0].width,
+                                     gEyes[0].height)) {
+                BridgeLog("capture target could not be resized for stereo");
+                gBridgeFatal = true;
+                RsGlobal.quit = TRUE;
+                return false;
+            }
+        }
+
         SaveCameraBase();
         ApplyEyeCamera(0);
         if (!gFirstStereoFrameLogged) {
