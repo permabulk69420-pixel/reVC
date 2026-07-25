@@ -85,16 +85,15 @@ target_link_libraries(reVC PRIVATE
 # They are now ordinary calls into QuestGameHooks from inside the function
 # bodies. Do not add a --wrap entry for anything defined in core/main.cpp.
 #
-# CPad::UpdatePads is defined in core/Pad.cpp and called from core/main.cpp, so
-# the reference crosses object files and --wrap reaches it. Touch is merged into
-# NewState after the stock update completes, which leaves SDL controller input
-# fully intact and keeps the merged state clear of ReconcileTwoControllersInput.
+# CPad::UpdatePads remains completely stock. Quest Touch is merged after the
+# ordinary mouse/controller mapping call, which crosses from Pad.cpp into
+# ControllerConfig.cpp and therefore can be wrapped without replacing SDL input.
 target_link_options(reVC PRIVATE
         "-Wl,--wrap=RsEventHandler"
         "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
         "-Wl,--wrap=glBlitFramebuffer"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
-        "-Wl,--wrap=_ZN4CPad10UpdatePadsEv"
+        "-Wl,--wrap=_ZN24CControllerConfigManager18AffectPadFromMouseEv"
         "-Wl,--wrap=_ZN9CRenderer19ConstructRenderListEv"
         "-Wl,--wrap=_ZN9CRenderer9PreRenderEv")
