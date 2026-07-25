@@ -61,10 +61,10 @@ set(REVC_INSTALL OFF CACHE BOOL "Do not create desktop install targets" FORCE)
 
 add_subdirectory("${REVC_GAME_DIR}" "${CMAKE_BINARY_DIR}/revc_game")
 
-# Zero-transform diagnostic: preserve the proven SDL/EGL/OpenXR ownership and
-# two-pass eye replay, but leave Vice City's game camera and RenderWare projection
-# untouched. xrEndFrame is wrapped only to present the completed eye textures on
-# eye-specific 16:9 quad layers rather than as an immersive projection.
+# Native per-eye stereo: the SDL/EGL/OpenXR ownership and two-pass eye replay
+# are preserved, and each eye is now submitted as an XrCompositionLayerProjection
+# view by QuestOpenXRStereo. The quad-layer screen baseline and the stereo-replay
+# disable were diagnostic scaffolding and have been removed.
 target_compile_definitions(reVC PRIVATE
         ANDROID_x32=0
         XR_USE_PLATFORM_ANDROID
@@ -75,26 +75,21 @@ target_link_libraries(reVC PRIVATE
         log
         EGL
         GLESv3)
+# Only symbols whose references genuinely cross object files are wrapped here.
+#
+# The render-sequence functions in core/main.cpp used to be listed too, but
+# --wrap cannot reach them: each one is defined in main.cpp and called from
+# Idle()/FrontendIdle() in main.cpp, so the compiler binds those calls to the
+# local definition and the linker never sees a reference to redirect. Those ten
+# wrappers silently never ran, which is why the right-eye replay never happened.
+# They are now ordinary calls into QuestGameHooks from inside the function
+# bodies. Do not add a --wrap entry for anything defined in core/main.cpp.
 target_link_options(reVC PRIVATE
         "-Wl,--wrap=RsEventHandler"
         "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
-        "-Wl,--wrap=_Z21RwCameraSetViewWindowPN2rw6CameraEPKNS_3V2dE"
-        "-Wl,--wrap=_Z21RwCameraSetViewOffsetPN2rw6CameraEPKNS_3V2dE"
-        "-Wl,--wrap=xrEndFrame"
         "-Wl,--wrap=glBlitFramebuffer"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
-        "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
         "-Wl,--wrap=_ZN4CPad10UpdatePadsEv"
         "-Wl,--wrap=_ZN9CRenderer19ConstructRenderListEv"
-        "-Wl,--wrap=_ZN9CRenderer9PreRenderEv"
-        "-Wl,--wrap=_Z29DoRWStuffStartOfFrame_Horizonsssssss"
-        "-Wl,--wrap=_Z21DoRWStuffStartOfFramesssssss"
-        "-Wl,--wrap=_Z19DoRWStuffEndOfFramev"
-        "-Wl,--wrap=_Z11RenderScenev"
-        "-Wl,--wrap=_Z15RenderDebugShitv"
-        "-Wl,--wrap=_Z13RenderEffectsv"
-        "-Wl,--wrap=_Z13Render2dStuffv"
-        "-Wl,--wrap=_Z11RenderMenusv"
-        "-Wl,--wrap=_Z6DoFadev"
-        "-Wl,--wrap=_Z22Render2dStuffAfterFadev")
+        "-Wl,--wrap=_ZN9CRenderer9PreRenderEv")

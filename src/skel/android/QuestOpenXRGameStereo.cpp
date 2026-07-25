@@ -24,6 +24,7 @@
 #include "Renderer.h"
 #include "JavaWrapper.h"
 #include "QuestOpenXR.h"
+#include "QuestGameHooks.h"
 #ifdef EXTENDED_PIPELINES
 #include "custompipes.h"
 #endif
@@ -90,6 +91,20 @@ struct CapturedRenderPass {
 };
 
 CapturedRenderPass gPass;
+
+// Hook liveness counters. The --wrap layer these hooks replace failed silently:
+// it compiled, linked and ran while doing nothing at all. Counting each hook and
+// reporting from logcat makes "did this actually fire?" answerable in seconds
+// instead of needing a headset session to guess at.
+struct HookCounters {
+    unsigned int frameStart;
+    unsigned int frameEnd;
+    unsigned int scene;
+    unsigned int replay;
+    unsigned int eyesSubmitted;
+};
+
+HookCounters gHooks = {0, 0, 0, 0, 0};
 
 void OpenBridgeLog() {
     if (gBridgeLog != NULL) {
@@ -618,18 +633,10 @@ bool SubmitCurrentEye(uint32_t eye) {
 
 } // namespace
 
-extern "C" bool __real__Z29DoRWStuffStartOfFrame_Horizonsssssss(
-        int16, int16, int16, int16, int16, int16, int16);
-extern "C" bool __real__Z21DoRWStuffStartOfFramesssssss(
-        int16, int16, int16, int16, int16, int16, int16);
-extern "C" void __real__Z19DoRWStuffEndOfFramev();
-extern "C" void __real__Z11RenderScenev();
-extern "C" void __real__Z15RenderDebugShitv();
-extern "C" void __real__Z13RenderEffectsv();
-extern "C" void __real__Z13Render2dStuffv();
-extern "C" void __real__Z11RenderMenusv();
-extern "C" void __real__Z6DoFadev();
-extern "C" void __real__Z22Render2dStuffAfterFadev();
+// CRenderer::ConstructRenderList and CRenderer::PreRender live in
+// renderer/Renderer.cpp and are called from core/main.cpp, so those references
+// genuinely do cross object files and --wrap works on them. They stay wrapped.
+// Everything in core/main.cpp is now reached through QuestGameHooks instead.
 extern "C" void __real__ZN9CRenderer19ConstructRenderListEv();
 extern "C" void __real__ZN9CRenderer9PreRenderEv();
 
@@ -644,62 +651,53 @@ extern "C" void __wrap__ZN9CRenderer9PreRenderEv() {
     __real__ZN9CRenderer9PreRenderEv();
 }
 
-extern "C" bool __wrap__Z29DoRWStuffStartOfFrame_Horizonsssssss(
-        int16 a, int16 b, int16 c, int16 d, int16 e, int16 f, int16 g) {
-    if (gStereoFrameActive && !gReplayingRightEye) {
-        ResetCapturedPass(StartMode::Horizon);
-        const int16 values[7] = {a, b, c, d, e, f, g};
-        memcpy(gPass.startArgs, values, sizeof(values));
+namespace QuestGameHooks {
+
+void NoteFrameStart(FrameStart mode, int16 topRed, int16 topGreen, int16 topBlue,
+        int16 bottomRed, int16 bottomGreen, int16 bottomBlue, int16 alpha) {
+    ++gHooks.frameStart;
+    if (!gStereoFrameActive || gReplayingRightEye) {
+        return;
     }
-    return __real__Z29DoRWStuffStartOfFrame_Horizonsssssss(
-            a, b, c, d, e, f, g);
+    ResetCapturedPass(mode == FrameStart::Horizon ? StartMode::Horizon
+                                                  : StartMode::Plain);
+    const int16 values[7] = {topRed, topGreen, topBlue, bottomRed,
+                             bottomGreen, bottomBlue, alpha};
+    memcpy(gPass.startArgs, values, sizeof(values));
 }
 
-extern "C" bool __wrap__Z21DoRWStuffStartOfFramesssssss(
-        int16 a, int16 b, int16 c, int16 d, int16 e, int16 f, int16 g) {
+void NoteRenderScene(void) {
     if (gStereoFrameActive && !gReplayingRightEye) {
-        ResetCapturedPass(StartMode::Plain);
-        const int16 values[7] = {a, b, c, d, e, f, g};
-        memcpy(gPass.startArgs, values, sizeof(values));
+        gPass.scene = true;
+        ++gHooks.scene;
     }
-    return __real__Z21DoRWStuffStartOfFramesssssss(
-            a, b, c, d, e, f, g);
 }
 
-extern "C" void __wrap__Z11RenderScenev() {
-    if (gStereoFrameActive && !gReplayingRightEye) gPass.scene = true;
-    __real__Z11RenderScenev();
-}
-
-extern "C" void __wrap__Z15RenderDebugShitv() {
+void NoteRenderDebugShit(void) {
     if (gStereoFrameActive && !gReplayingRightEye) gPass.debug = true;
-    __real__Z15RenderDebugShitv();
 }
 
-extern "C" void __wrap__Z13RenderEffectsv() {
+void NoteRenderEffects(void) {
     if (gStereoFrameActive && !gReplayingRightEye) gPass.effects = true;
-    __real__Z13RenderEffectsv();
 }
 
-extern "C" void __wrap__Z13Render2dStuffv() {
+void NoteRender2dStuff(void) {
     if (gStereoFrameActive && !gReplayingRightEye) gPass.twoD = true;
-    __real__Z13Render2dStuffv();
 }
 
-extern "C" void __wrap__Z11RenderMenusv() {
+void NoteRenderMenus(void) {
     if (gStereoFrameActive && !gReplayingRightEye) gPass.menus = true;
-    __real__Z11RenderMenusv();
 }
 
-extern "C" void __wrap__Z6DoFadev() {
+void NoteDoFade(void) {
     if (gStereoFrameActive && !gReplayingRightEye) gPass.fade = true;
-    __real__Z6DoFadev();
 }
 
-extern "C" void __wrap__Z22Render2dStuffAfterFadev() {
+void NoteRender2dStuffAfterFade(void) {
     if (gStereoFrameActive && !gReplayingRightEye) gPass.afterFade = true;
-    __real__Z22Render2dStuffAfterFadev();
 }
+
+} // namespace QuestGameHooks
 
 extern "C" RsEventStatus __real_RsEventHandler(RsEvent event, void* param);
 extern "C" RwBool __real_psCameraBeginUpdate(RwCamera* camera);
@@ -770,14 +768,19 @@ extern "C" RwBool __wrap_psCameraBeginUpdate(RwCamera* camera) {
     return result;
 }
 
-extern "C" void __wrap__Z19DoRWStuffEndOfFramev() {
+void QuestGameHooks::FrameEnd(void) {
+    // The normal frame body has already run by the time this is called.
+    ++gHooks.frameEnd;
+    if (gHooks.frameEnd % 72 == 0) {
+        BridgeLog("hooks: frameStart=%u frameEnd=%u scene=%u replay=%u eyes=%u",
+                  gHooks.frameStart, gHooks.frameEnd, gHooks.scene,
+                  gHooks.replay, gHooks.eyesSubmitted);
+    }
+
     if (!gStereoFrameActive) {
-        __real__Z19DoRWStuffEndOfFramev();
         FinishCapturedPass();
         return;
     }
-
-    __real__Z19DoRWStuffEndOfFramev();
 
     bool valid = true;
     if (gStereoShouldRender) {
@@ -786,20 +789,23 @@ extern "C" void __wrap__Z19DoRWStuffEndOfFramev() {
             RestoreCameraBase();
             gCurrentEye = 1;
             gReplayingRightEye = true;
+            ++gHooks.replay;
             ApplyEyeCamera(1);
 
             __real__ZN9CRenderer19ConstructRenderListEv();
             __real__ZN9CRenderer9PreRenderEv();
 
+            // gReplayingRightEye is set, so the QuestGameHooks calls inside
+            // these functions no-op and the recorded pass is not disturbed.
             bool began = false;
             if (gPass.startMode == StartMode::Horizon) {
-                began = __real__Z29DoRWStuffStartOfFrame_Horizonsssssss(
+                began = DoRWStuffStartOfFrame_Horizon(
                         gPass.startArgs[0], gPass.startArgs[1],
                         gPass.startArgs[2], gPass.startArgs[3],
                         gPass.startArgs[4], gPass.startArgs[5],
                         gPass.startArgs[6]);
             } else if (gPass.startMode == StartMode::Plain) {
-                began = __real__Z21DoRWStuffStartOfFramesssssss(
+                began = DoRWStuffStartOfFrame(
                         gPass.startArgs[0], gPass.startArgs[1],
                         gPass.startArgs[2], gPass.startArgs[3],
                         gPass.startArgs[4], gPass.startArgs[5],
@@ -809,19 +815,20 @@ extern "C" void __wrap__Z19DoRWStuffEndOfFramev() {
             valid = began;
             if (began) {
                 DefinedState();
-                if (gPass.scene) __real__Z11RenderScenev();
+                if (gPass.scene) RenderScene();
 #ifdef EXTENDED_PIPELINES
                 if (gPass.scene) CustomPipes::EnvMapRender();
 #endif
-                if (gPass.debug) __real__Z15RenderDebugShitv();
-                if (gPass.effects) __real__Z13RenderEffectsv();
+                if (gPass.debug) RenderDebugShit();
+                if (gPass.effects) RenderEffects();
                 if (gPass.scene) TheCamera.RenderMotionBlur();
-                if (gPass.twoD) __real__Z13Render2dStuffv();
-                if (gPass.menus) __real__Z11RenderMenusv();
-                if (gPass.fade) __real__Z6DoFadev();
-                if (gPass.afterFade) __real__Z22Render2dStuffAfterFadev();
+                if (gPass.twoD) Render2dStuff();
+                if (gPass.menus) RenderMenus();
+                if (gPass.fade) DoFade();
+                if (gPass.afterFade) Render2dStuffAfterFade();
                 RwCameraEndUpdate(Scene.camera);
                 valid = SubmitCurrentEye(1);
+                if (valid) ++gHooks.eyesSubmitted;
             }
             gReplayingRightEye = false;
         }

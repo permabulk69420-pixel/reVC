@@ -41,6 +41,18 @@ class CSprite2d;
 bool DoRWStuffStartOfFrame(int16 TopRed, int16 TopGreen, int16 TopBlue, int16 BottomRed, int16 BottomGreen, int16 BottomBlue, int16 Alpha);
 bool DoRWStuffStartOfFrame_Horizon(int16 TopRed, int16 TopGreen, int16 TopBlue, int16 BottomRed, int16 BottomGreen, int16 BottomBlue, int16 Alpha);
 void DoRWStuffEndOfFrame(void);
+#ifdef ANDROID
+// Needed by the Quest stereo bridge, which replays these stages for the right
+// eye. They are defined in main.cpp and were previously reachable only from
+// within that translation unit.
+void RenderScene(void);
+void RenderDebugShit(void);
+void RenderEffects(void);
+void Render2dStuff(void);
+void RenderMenus(void);
+void DoFade(void);
+void Render2dStuffAfterFade(void);
+#endif
 void PreAllocateRwObjects(void);
 void InitialiseGame(void);
 void LoadingScreen(const char *str1, const char *str2, const char *splashscreen);

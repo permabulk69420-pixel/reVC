@@ -77,6 +77,13 @@
 #include "VarConsole.h"
 #ifdef USE_OUR_VERSIONING
 #include "GitSHA1.h"
+
+#ifdef ANDROID
+#include "QuestGameHooks.h"
+#define QUEST_HOOK(call) QuestGameHooks::call
+#else
+#define QUEST_HOOK(call) ((void)0)
+#endif
 #endif
 
 GlobalScene Scene;
@@ -204,6 +211,9 @@ ValidateVersion()
 bool
 DoRWStuffStartOfFrame(int16 TopRed, int16 TopGreen, int16 TopBlue, int16 BottomRed, int16 BottomGreen, int16 BottomBlue, int16 Alpha)
 {
+	QUEST_HOOK(NoteFrameStart(QuestGameHooks::FrameStart::Plain, TopRed, TopGreen,
+			TopBlue, BottomRed, BottomGreen, BottomBlue, Alpha));
+
 	CRGBA TopColor(TopRed, TopGreen, TopBlue, Alpha);
 	CRGBA BottomColor(BottomRed, BottomGreen, BottomBlue, Alpha);
 
@@ -226,6 +236,9 @@ DoRWStuffStartOfFrame(int16 TopRed, int16 TopGreen, int16 TopBlue, int16 BottomR
 bool
 DoRWStuffStartOfFrame_Horizon(int16 TopRed, int16 TopGreen, int16 TopBlue, int16 BottomRed, int16 BottomGreen, int16 BottomBlue, int16 Alpha)
 {
+	QUEST_HOOK(NoteFrameStart(QuestGameHooks::FrameStart::Horizon, TopRed, TopGreen,
+			TopBlue, BottomRed, BottomGreen, BottomBlue, Alpha));
+
 	CDraw::CalculateAspectRatio();
 	CameraSize(Scene.camera, nil, SCREEN_VIEWWINDOW, SCREEN_ASPECT_RATIO);
 	CVisibilityPlugins::SetRenderWareCamera(Scene.camera);
@@ -250,6 +263,8 @@ DoRWRenderHorizon(void)
 void
 DoFade(void)
 {
+	QUEST_HOOK(NoteDoFade());
+
 	if(CTimer::GetIsPaused())
 		return;
 
@@ -389,6 +404,10 @@ DoRWStuffEndOfFrame(void)
 	}
 #endif
 #endif // !MASTER
+
+	// Must be last: the Quest bridge submits the left eye here and replays the
+	// whole frame for the right eye, so the normal frame has to be complete.
+	QUEST_HOOK(FrameEnd());
 }
 
 static RwBool 
@@ -1357,6 +1376,7 @@ if(gbRenderFadingInEntities)
 void
 RenderScene(void)
 {
+	QUEST_HOOK(NoteRenderScene());
 #ifdef NEW_RENDERER
 	if(gbNewRenderer){
 		RenderScene_new();
@@ -1385,6 +1405,7 @@ RenderScene(void)
 void
 RenderDebugShit(void)
 {
+	QUEST_HOOK(NoteRenderDebugShit());
 	PUSH_RENDERGROUP("RenderDebugShit");
 	CTheScripts::RenderTheScriptDebugLines();
 #ifndef FINAL
@@ -1400,6 +1421,7 @@ RenderDebugShit(void)
 void
 RenderEffects(void)
 {
+	QUEST_HOOK(NoteRenderEffects());
 #ifdef NEW_RENDERER
 	if(gbNewRenderer){
 		RenderEffects_new();
@@ -1429,6 +1451,7 @@ RenderEffects(void)
 void
 Render2dStuff(void)
 {
+	QUEST_HOOK(NoteRender2dStuff());
 	PUSH_RENDERGROUP("Render2dStuff");
 	RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)FALSE);
 	RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)FALSE);
@@ -1507,6 +1530,8 @@ Render2dStuff(void)
 void
 RenderMenus(void)
 {
+	QUEST_HOOK(NoteRenderMenus());
+
 	if (FrontEndMenuManager.m_bMenuActive)
 	{
 		PUSH_RENDERGROUP("RenderMenus");
@@ -1522,6 +1547,7 @@ RenderMenus(void)
 void
 Render2dStuffAfterFade(void)
 {
+	QUEST_HOOK(NoteRender2dStuffAfterFade());
 	PUSH_RENDERGROUP("Render2dStuffAfterFade");
 #ifndef MASTER
 	DisplayGameDebugText();
