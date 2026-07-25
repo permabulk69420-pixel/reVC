@@ -587,6 +587,39 @@ void ApplyEyeCamera(uint32_t eyeIndex) {
     // when turning. Here only the eye's offset from the head is needed.
     if (QuestVrCamera::IsHeadTrackingActive()) {
         const QuestOpenXR::EyeView& headEye = gEyes[eyeIndex];
+
+        // Cutscenes, vehicle cameras and every other mode that is not
+        // MODE_1STPERSON never went through the VR camera in CCam, so the
+        // matrix still carries a game-driven orientation. Composing the head
+        // rotation on top of that is what applies it twice and shears the
+        // view when turning.
+        //
+        // Take the director's position, but take the orientation from the
+        // head. You stand where the shot puts you and look where you like,
+        // and the rendered orientation becomes a constant recentre offset
+        // composed with the head pose, which is what makes the pose submitted
+        // to the compositor correct.
+        if (TheCamera.Cams[TheCamera.ActiveCam].Mode != CCam::MODE_1STPERSON) {
+            float headYaw = 0.0f, headPitch = 0.0f;
+            if (QuestVrCamera::GetHeadAngles(&headYaw, &headPitch)) {
+                const float cp = cosf(headPitch);
+                CVector fwd(cp * cosf(headYaw), cp * sinf(headYaw), sinf(headPitch));
+                fwd.Normalise();
+                // GTA's GetRight() is built as CrossProduct(Up, Front) and
+                // actually points left; matching it keeps the basis consistent
+                // with every other camera in the game.
+                CVector rgt = CrossProduct(CVector(0.0f, 0.0f, 1.0f), fwd);
+                if (rgt.Magnitude() < 0.001f) {
+                    rgt = CrossProduct(CVector(0.0f, 1.0f, 0.0f), fwd);
+                }
+                rgt.Normalise();
+                CVector upv = CrossProduct(fwd, rgt);
+                upv.Normalise();
+                TheCamera.GetMatrix().GetForward() = fwd;
+                TheCamera.GetMatrix().GetRight() = rgt;
+                TheCamera.GetMatrix().GetUp() = upv;
+            }
+        }
         float headMid[3] = {headEye.position[0], headEye.position[1],
                             headEye.position[2]};
         if (gEyeCount >= 2 && gEyes[0].valid && gEyes[1].valid) {

@@ -1682,6 +1682,21 @@ Idle(void *arg)
 		Render2dStuff();
 		tbEndTimer("Render2dStuff");
 	}else{
+		// This is a third frame-start path: it does the same work as
+		// DoRWStuffStartOfFrame_Horizon inline rather than calling it, so the
+		// hook in that function never fires here. Hardware logs showed
+		// frameStart stuck at 7 while frameEnd climbed past 700, which is this
+		// branch running every frame through the menus. Without the hook the
+		// recorded pass has no start mode and the right-eye replay has nothing
+		// to reproduce, so that eye is silently skipped.
+		//
+		// Reported as Horizon because it is behaviourally identical to it:
+		// same CameraSize, same gColourTop clear, same RsCameraBeginUpdate.
+		// Horizon ignores its arguments for the clear colour, so zeroes are
+		// correct rather than merely harmless.
+		QUEST_HOOK(NoteFrameStart(QuestGameHooks::FrameStart::Horizon,
+				0, 0, 0, 0, 0, 0, 0));
+
 		CDraw::CalculateAspectRatio();
 #ifdef ASPECT_RATIO_SCALE
 		CameraSize(Scene.camera, nil, SCREEN_VIEWWINDOW, SCREEN_ASPECT_RATIO);
