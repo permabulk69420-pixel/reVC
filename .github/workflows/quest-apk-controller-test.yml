@@ -10,10 +10,8 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout controller-test branch
+      - name: Checkout PR branch
         uses: actions/checkout@v4
-        with:
-          ref: agent/restore-sdl-controller-input
 
       - name: Set up Java
         uses: actions/setup-java@v4
