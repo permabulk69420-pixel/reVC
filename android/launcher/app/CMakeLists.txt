@@ -84,12 +84,14 @@ target_link_libraries(reVC PRIVATE
 # wrappers silently never ran, which is why the right-eye replay never happened.
 # They are now ordinary calls into QuestGameHooks from inside the function
 # bodies. Do not add a --wrap entry for anything defined in core/main.cpp.
+#
+# Keep CPad::UpdatePads on the stock SDL/Android path so Bluetooth controllers
+# and Android joystick axes are not replaced by the Quest compatibility shim.
 target_link_options(reVC PRIVATE
         "-Wl,--wrap=RsEventHandler"
         "-Wl,--wrap=psCameraBeginUpdate"
         "-Wl,--wrap=psCameraShowRaster"
         "-Wl,--wrap=glBlitFramebuffer"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
-        "-Wl,--wrap=_ZN4CPad10UpdatePadsEv"
         "-Wl,--wrap=_ZN9CRenderer19ConstructRenderListEv"
         "-Wl,--wrap=_ZN9CRenderer9PreRenderEv")
