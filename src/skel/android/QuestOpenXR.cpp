@@ -638,12 +638,40 @@ bool CreateSwapchains() {
     g.recommendedWidth = 0;
     g.recommendedHeight = 0;
 
+    // Supersample above the runtime's recommendation. The recommended size is
+    // a balanced default, not a ceiling, and the eye image is resampled through
+    // lens distortion before it reaches the panel, so rendering above it is
+    // what actually sharpens the result.
+    //
+    // This costs fill rate directly, and reVC draws the scene once per eye, so
+    // the cost applies twice. Raise it only as far as the frame rate holds:
+    // dropped frames in VR are far worse than a soft image, and the floor
+    // matters more than the average. Clamped to the runtime's stated maximum.
+    const float kSupersampleScale = 1.25f;
+
     for (uint32_t eye = 0; eye < viewCount; ++eye) {
         Swapchain& swapchain = g.swapchains[eye];
-        swapchain.width = static_cast<int32_t>(
-                g.viewConfigs[eye].recommendedImageRectWidth);
-        swapchain.height = static_cast<int32_t>(
-                g.viewConfigs[eye].recommendedImageRectHeight);
+        const uint32_t recommendedW =
+                g.viewConfigs[eye].recommendedImageRectWidth;
+        const uint32_t recommendedH =
+                g.viewConfigs[eye].recommendedImageRectHeight;
+        uint32_t scaledW = static_cast<uint32_t>(
+                static_cast<float>(recommendedW) * kSupersampleScale + 0.5f);
+        uint32_t scaledH = static_cast<uint32_t>(
+                static_cast<float>(recommendedH) * kSupersampleScale + 0.5f);
+        if (scaledW > g.viewConfigs[eye].maxImageRectWidth) {
+            scaledW = g.viewConfigs[eye].maxImageRectWidth;
+        }
+        if (scaledH > g.viewConfigs[eye].maxImageRectHeight) {
+            scaledH = g.viewConfigs[eye].maxImageRectHeight;
+        }
+        Log("Eye %u sizing: recommended=%ux%u max=%ux%u scale=%.2f chosen=%ux%u",
+            eye, recommendedW, recommendedH,
+            g.viewConfigs[eye].maxImageRectWidth,
+            g.viewConfigs[eye].maxImageRectHeight,
+            kSupersampleScale, scaledW, scaledH);
+        swapchain.width = static_cast<int32_t>(scaledW);
+        swapchain.height = static_cast<int32_t>(scaledH);
         g.recommendedWidth = g.recommendedWidth > swapchain.width
                 ? g.recommendedWidth : swapchain.width;
         g.recommendedHeight = g.recommendedHeight > swapchain.height
