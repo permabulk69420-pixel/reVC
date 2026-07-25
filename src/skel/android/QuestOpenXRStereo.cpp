@@ -143,6 +143,26 @@ QuestOpenXR::FrameResult EndStereoFrameInternal(bool fatalOnMissingEyes) {
                     XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
             projection.pose = g.views[eye].pose;
             projection.fov = g.views[eye].fov;
+
+            // The submitted pose tells the compositor which camera produced
+            // this image, and it reprojects from that pose to display time.
+            // reVC does not render from this pose: ApplyEyeCamera applies the
+            // XR rotation relative to the game camera basis instead. If those
+            // disagree, head rotation is effectively applied twice. Report the
+            // pose so it can be compared against the rendered basis already in
+            // the log.
+            static unsigned int loggedPoses = 0;
+            if (loggedPoses < 8) {
+                ++loggedPoses;
+                Log("submitted eye%u pose q=%.3f,%.3f,%.3f,%.3f p=%.2f,%.2f,%.2f",
+                    eye, g.views[eye].pose.orientation.x,
+                    g.views[eye].pose.orientation.y,
+                    g.views[eye].pose.orientation.z,
+                    g.views[eye].pose.orientation.w,
+                    g.views[eye].pose.position.x,
+                    g.views[eye].pose.position.y,
+                    g.views[eye].pose.position.z);
+            }
             projection.subImage.swapchain = g.swapchains[eye].handle;
             projection.subImage.imageRect.offset = {0, 0};
             projection.subImage.imageRect.extent = {
@@ -228,6 +248,21 @@ StereoFrameResult BeginStereoFrame(EyeView* eyes, uint32_t eyeCapacity,
         return StereoFrameResult::ExitRequested;
     }
     if (!g.sessionRunning) {
+        // "waiting for session" on its own does not say why. sessionRunning is
+        // only cleared by an xrEndSession after STOPPING, or by a full runtime
+        // teardown, and hardware logs show it going false with neither of those
+        // logged. Report the session state so the next capture names the cause,
+        // and report it again whenever that state changes rather than per frame.
+        static XrSessionState loggedWaitState = XR_SESSION_STATE_UNKNOWN;
+        static bool loggedWaitOnce = false;
+        if (!loggedWaitOnce || loggedWaitState != g.sessionState) {
+            loggedWaitOnce = true;
+            loggedWaitState = g.sessionState;
+            Log("stereo waiting: sessionRunning=0 state=%s exitRequested=%d fatal=%d frames=%llu",
+                SessionStateName(g.sessionState),
+                g.exitRequested.load() ? 1 : 0, g.fatalError ? 1 : 0,
+                static_cast<unsigned long long>(g.frameCount));
+        }
         return StereoFrameResult::WaitingForSession;
     }
 
