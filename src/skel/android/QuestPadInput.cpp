@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "common.h"
+#include "ControllerConfig.h"
 #include "Pad.h"
 #include "QuestOpenXR.h"
 
@@ -30,12 +31,12 @@ void MergeButton(int16* destination, int16 value) {
         *destination = value;
 }
 
-void InjectTouchState() {
+void InjectTouchIntoStockPadPipeline() {
     QuestOpenXR::ControllerState touch;
     if (!QuestOpenXR::GetControllerState(&touch) || !touch.active)
         return;
 
-    CControllerState& pad = CPad::GetPad(0)->NewState;
+    CControllerState& pad = CPad::GetPad(0)->PCTempJoyState;
     MergeAxis(&pad.LeftStickX, StickValue(touch.leftStickX));
     MergeAxis(&pad.LeftStickY, StickValue(-touch.leftStickY));
     MergeAxis(&pad.RightStickX, StickValue(touch.rightStickX));
@@ -63,9 +64,11 @@ void InjectTouchState() {
 
 } // namespace
 
-extern "C" void QuestPadInput_UpdateAfterStockPad() {
+extern "C" void __real__ZN24CControllerConfigManager18AffectPadFromMouseEv(CControllerConfigManager* self);
+extern "C" void __wrap__ZN24CControllerConfigManager18AffectPadFromMouseEv(CControllerConfigManager* self) {
+    __real__ZN24CControllerConfigManager18AffectPadFromMouseEv(self);
     QuestOpenXR::RefreshControllerState();
-    InjectTouchState();
+    InjectTouchIntoStockPadPipeline();
 }
 
 #endif
