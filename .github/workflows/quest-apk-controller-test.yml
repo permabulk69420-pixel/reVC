@@ -35,3 +35,5 @@ jobs:
           name: reVC-Quest-controller-test
           path: android/launcher/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+# Triggered after workflow creation so the Quest build runs on this branch.
