@@ -332,7 +332,25 @@ StereoFrameResult BeginStereoFrame(EyeView* eyes, uint32_t eyeCapacity,
     UpdateHeadState(locatedCount);
 
     if (!stereo.originSet) {
-        stereo.originOrientation = Normalize(g.views[0].pose.orientation);
+        // Recentre yaw only. Pitch and roll define which way is up, and the
+        // runtime's reference space is already gravity aligned, so they must
+        // pass through untouched. Capturing the whole orientation makes
+        // whatever angle the head happened to be at on the first tracked frame
+        // become level for the rest of the session: the headset is usually
+        // still being put on or adjusted at that moment, which is why the view
+        // started pitched away from the horizon on every launch.
+        const XrQuaternionf raw = Normalize(g.views[0].pose.orientation);
+        // Forward is -Z in OpenXR, and yaw is rotation about +Y.
+        const float fx = 2.0f * (raw.x * raw.z + raw.w * raw.y);
+        const float fz = 1.0f - 2.0f * (raw.x * raw.x + raw.y * raw.y);
+        const float yaw = atan2f(fx, fz);
+        const float halfYaw = 0.5f * yaw;
+        stereo.originOrientation.x = 0.0f;
+        stereo.originOrientation.y = sinf(halfYaw);
+        stereo.originOrientation.z = 0.0f;
+        stereo.originOrientation.w = cosf(halfYaw);
+        Log("Stereo origin yaw=%.1f deg captured; pitch and roll left on gravity",
+            yaw * 180.0f / 3.14159265f);
         XrVector3f centre = {0.0f, 0.0f, 0.0f};
         for (uint32_t eye = 0; eye < locatedCount; ++eye) {
             centre.x += g.views[eye].pose.position.x;

@@ -606,6 +606,16 @@ void ApplyEyeCamera(uint32_t eyeIndex) {
         TheCamera.GetMatrix().GetPosition() +=
                 right * dx + up * dy + forward * (-dz);
 
+        // Cull to the frustum actually being rendered. ApplyEyeProjection sets
+        // the RenderWare projection from the OpenXR frusta, so leaving the game
+        // FOV at its flat-screen default culls everything outside a much
+        // narrower cone and leaves holes around the edges of the view.
+        const float halfHorizontal = fmaxf(
+                fabsf(headEye.angleLeft), fabsf(headEye.angleRight));
+        if (halfHorizontal > 0.01f) {
+            CDraw::SetFOV(halfHorizontal * 2.0f * 180.0f / PI);
+        }
+
         TheCamera.CalculateDerivedValues();
         PushGameCameraToRenderWare();
         return;
