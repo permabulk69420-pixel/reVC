@@ -111,6 +111,7 @@ HookCounters gHooks = {0, 0, 0, 0, 0};
 // Bounded so the geometry report cannot flood logcat during a session.
 unsigned int gGeometryReports = 0;
 unsigned int gCameraReports = 0;
+unsigned int gViewportReports = 0;
 
 // The same numbers drawn on the HUD, so they can be read in the headset and
 // screenshotted without a PC. Kept current every frame rather than bounded like
@@ -1062,6 +1063,26 @@ extern "C" RwBool __wrap_psCameraBeginUpdate(RwCamera* camera) {
     }
 
     const RwBool result = __real_psCameraBeginUpdate(camera);
+
+    // What resolution is the game actually rasterising at? The capture FBO is
+    // sized to the eye swapchain, but librw sets its own viewport from the
+    // RenderWare camera raster during begin-update, and that raster is never
+    // resized to match the FBO. If it wins, the scene is drawn at the raster's
+    // size and scaled up on presentation, which no amount of swapchain
+    // supersampling can recover. Sample the viewport librw left behind.
+    if (gViewportReports < 6 && result) {
+        ++gViewportReports;
+        GLint viewport[4] = {0, 0, 0, 0};
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        RwRaster* raster = RwCameraGetRaster(camera);
+        BridgeLog("render size: librw viewport=%dx%d at %d,%d | raster=%dx%d | capture FBO=%dx%d | RsGlobal=%dx%d",
+                  viewport[2], viewport[3], viewport[0], viewport[1],
+                  raster == nil ? -1 : RwRasterGetWidth(raster),
+                  raster == nil ? -1 : RwRasterGetHeight(raster),
+                  gCaptureWidth, gCaptureHeight,
+                  RsGlobal.width, RsGlobal.height);
+    }
+
     if (!result) {
         if (gStereoFrameActive) {
             QuestOpenXR::EndStereoFrame();
