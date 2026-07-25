@@ -20,6 +20,7 @@
 #include "platform.h"
 #include "main.h"
 #include "Camera.h"
+#include "Debug.h"
 #include "Draw.h"
 #include "Renderer.h"
 #include "JavaWrapper.h"
@@ -109,6 +110,27 @@ HookCounters gHooks = {0, 0, 0, 0, 0};
 // Bounded so the geometry report cannot flood logcat during a session.
 unsigned int gGeometryReports = 0;
 unsigned int gCameraReports = 0;
+
+// The same numbers drawn on the HUD, so they can be read in the headset and
+// screenshotted without a PC. Kept current every frame rather than bounded like
+// the log lines. Drawn near the vertical middle because a heavily zoomed view
+// only shows the centre of the eye image, and anything in a corner may be off
+// screen entirely.
+enum { HUD_LINES = 4 };
+char gHudLines[HUD_LINES][160];
+bool gHudQueuedThisFrame = false;
+
+void QueueHudDiagnostics() {
+    if (gHudQueuedThisFrame) {
+        return;
+    }
+    gHudQueuedThisFrame = true;
+    for (int i = 0; i < HUD_LINES; ++i) {
+        if (gHudLines[i][0] != '\0') {
+            CDebug::PrintAt(gHudLines[i], 4, 40 + i * 2);
+        }
+    }
+}
 
 void OpenBridgeLog() {
     if (gBridgeLog != NULL) {
@@ -554,6 +576,15 @@ void ApplyEyeCamera(uint32_t eyeIndex) {
     // The game camera the frame started with, against the basis we replaced it
     // with. If the view starts aimed at the ground, comparing these two says
     // whether the XR orientation is wrong or the game basis it was built on was.
+    {
+        const CVector& hudForward = gSavedCameraMatrix.GetForward();
+        snprintf(gHudLines[3], sizeof(gHudLines[0]),
+                 "basis game fwd %.2f,%.2f,%.2f  xr fwd %.2f,%.2f,%.2f  fov %.0f>%.0f  %dx%d",
+                 hudForward.x, hudForward.y, hudForward.z,
+                 forward.x, forward.y, forward.z,
+                 gSavedFov, CDraw::GetFOV(), eye.width, eye.height);
+    }
+
     if (gCameraReports < 8) {
         ++gCameraReports;
         const CVector& savedForward = gSavedCameraMatrix.GetForward();
@@ -595,6 +626,19 @@ void ApplyEyeProjection(RwCamera* camera, uint32_t eyeIndex) {
     // to a number rather than guessed at.
     const RwV2d* existingWindow = RwCameraGetViewWindow(camera);
     const bool applied = viewWindow.x > 0.01f && viewWindow.y > 0.01f;
+
+    if (eyeIndex < 2) {
+        snprintf(gHudLines[1 + eyeIndex], sizeof(gHudLines[0]),
+                 "eye%u LR %.0f/%.0f UD %.0f/%.0f  game vw %.2f,%.2f  xr vw %.2f,%.2f  off %.2f,%.2f  ap%d",
+                 eyeIndex,
+                 eye.angleLeft * 180.0f / PI, eye.angleRight * 180.0f / PI,
+                 eye.angleUp * 180.0f / PI, eye.angleDown * 180.0f / PI,
+                 existingWindow == nil ? -1.0f : existingWindow->x,
+                 existingWindow == nil ? -1.0f : existingWindow->y,
+                 viewWindow.x, viewWindow.y, viewOffset.x, viewOffset.y,
+                 applied ? 1 : 0);
+    }
+
     if (gGeometryReports < 8) {
         ++gGeometryReports;
         BridgeLog("eye%u fov L=%.1f R=%.1f U=%.1f D=%.1f deg | game vw=%.3f,%.3f"
@@ -723,6 +767,9 @@ void NoteRenderEffects(void) {
 
 void NoteRender2dStuff(void) {
     if (gStereoFrameActive && !gReplayingRightEye) gPass.twoD = true;
+    // Queue the on-screen diagnostics here: this runs during the frame, before
+    // DoRWStuffEndOfFrame calls DisplayScreenStrings to draw and clear them.
+    QueueHudDiagnostics();
 }
 
 void NoteRenderMenus(void) {
@@ -735,6 +782,9 @@ void NoteDoFade(void) {
 
 void NoteRender2dStuffAfterFade(void) {
     if (gStereoFrameActive && !gReplayingRightEye) gPass.afterFade = true;
+    // Frontend and cutscene paths do not always reach Render2dStuff, so cover
+    // this one too. QueueHudDiagnostics is idempotent within a frame.
+    QueueHudDiagnostics();
 }
 
 } // namespace QuestGameHooks
@@ -816,6 +866,13 @@ void QuestGameHooks::FrameEnd(void) {
                   gHooks.frameStart, gHooks.frameEnd, gHooks.scene,
                   gHooks.replay, gHooks.eyesSubmitted);
     }
+    snprintf(gHudLines[0], sizeof(gHudLines[0]),
+             "hooks start %u end %u scene %u replay %u eyes %u",
+             gHooks.frameStart, gHooks.frameEnd, gHooks.scene,
+             gHooks.replay, gHooks.eyesSubmitted);
+    // The HUD strings were consumed by DisplayScreenStrings earlier in this
+    // frame; allow the next frame to queue them again.
+    gHudQueuedThisFrame = false;
 
     if (!gStereoFrameActive) {
         FinishCapturedPass();
