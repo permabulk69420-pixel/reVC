@@ -151,9 +151,22 @@ void OpenBridgeLog() {
     if (mkdir(userFiles.c_str(), 0775) != 0 && errno != EEXIST) {
         return;
     }
-    // Truncate per run. Appending forever made the log unreadable on the
-    // headset, where scrolling to the end of a huge file is impractical.
-    gBridgeLog = fopen((userFiles + "/xr_log.txt").c_str(), "w");
+    // QuestOpenXR.cpp opens this same path with its own FILE* handle, so this
+    // one must not be truncating: two independent handles with independent
+    // offsets overwrite each other, and the other stream's output is lost
+    // entirely. Truncate once here instead, before either handle is attached,
+    // then append. This still gives one run per file without silencing the
+    // OpenXR log.
+    const std::string logPath = userFiles + "/xr_log.txt";
+    static bool truncatedThisRun = false;
+    if (!truncatedThisRun) {
+        truncatedThisRun = true;
+        FILE* truncate = fopen(logPath.c_str(), "w");
+        if (truncate != NULL) {
+            fclose(truncate);
+        }
+    }
+    gBridgeLog = fopen(logPath.c_str(), "a");
 }
 
 void BridgeLog(const char* format, ...) {
