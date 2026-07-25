@@ -26,6 +26,7 @@
 #include "JavaWrapper.h"
 #include "QuestOpenXR.h"
 #include "QuestGameHooks.h"
+#include "QuestVrCamera.h"
 #ifdef EXTENDED_PIPELINES
 #include "custompipes.h"
 #endif
@@ -122,6 +123,15 @@ bool gHudQueuedThisFrame = false;
 
 // Why a stereo frame was last refused, or NULL while stereo is running.
 const char* gStereoGate = NULL;
+
+// Latest tracked head pose, kept across frames so the camera code can read it
+// while processing, before this frame's pose has been fetched. gEyes is reset
+// every frame, so it cannot be used for this.
+bool gHeadPoseValid = false;
+float gHeadOrientation[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+float gHeadPosition[3] = {0.0f, 0.0f, 0.0f};
+float gHeadYawOffset = 0.0f;
+bool gHeadYawOffsetSet = false;
 
 void QueueHudDiagnostics() {
     if (gHudQueuedThisFrame) {
@@ -570,6 +580,37 @@ void ApplyEyeCamera(uint32_t eyeIndex) {
 
     TheCamera.GetMatrix() = gSavedCameraMatrix;
 
+    // With the VR first-person camera driving CCam, the game camera already
+    // carries the head orientation and position. Composing the XR rotation on
+    // top of it again is what applied head rotation twice and sheared the view
+    // when turning. Here only the eye's offset from the head is needed.
+    if (QuestVrCamera::IsHeadTrackingActive()) {
+        const QuestOpenXR::EyeView& headEye = gEyes[eyeIndex];
+        float headMid[3] = {headEye.position[0], headEye.position[1],
+                            headEye.position[2]};
+        if (gEyeCount >= 2 && gEyes[0].valid && gEyes[1].valid) {
+            for (int i = 0; i < 3; ++i) {
+                headMid[i] = 0.5f * (gEyes[0].position[i] + gEyes[1].position[i]);
+            }
+        }
+        // Eye minus head, in the camera's own axes: x right, y forward, z up.
+        const float dx = headEye.position[0] - headMid[0];
+        const float dy = headEye.position[1] - headMid[1];
+        const float dz = headEye.position[2] - headMid[2];
+
+        CVector right = CrossProduct(TheCamera.GetMatrix().GetUp(),
+                                     TheCamera.GetMatrix().GetForward());
+        right.Normalise();
+        CVector up = TheCamera.GetMatrix().GetUp();
+        CVector forward = TheCamera.GetMatrix().GetForward();
+        TheCamera.GetMatrix().GetPosition() +=
+                right * dx + up * dy + forward * (-dz);
+
+        TheCamera.CalculateDerivedValues();
+        PushGameCameraToRenderWare();
+        return;
+    }
+
     CVector baseForward = gSavedCameraMatrix.GetForward();
     CVector baseUp = gSavedCameraMatrix.GetUp();
     baseForward.Normalise();
@@ -748,6 +789,22 @@ bool BeginLeftEyeBeforeCulling() {
     gStereoFrameActive = true;
     gStereoShouldRender =
             frame == QuestOpenXR::StereoFrameResult::Render;
+
+    // Publish the head pose for the camera code. It processes before this runs,
+    // so it will read this on the following frame; timewarp absorbs the lag.
+    if (gEyeCount >= 1 && gEyes[0].valid) {
+        memcpy(gHeadOrientation, gEyes[0].orientation, sizeof(gHeadOrientation));
+        memcpy(gHeadPosition, gEyes[0].position, sizeof(gHeadPosition));
+        if (gEyeCount >= 2 && gEyes[1].valid) {
+            // Use the midpoint of the eyes so the reference is the head rather
+            // than the left eye, which would otherwise offset by half the IPD.
+            for (int i = 0; i < 3; ++i) {
+                gHeadPosition[i] =
+                        0.5f * (gEyes[0].position[i] + gEyes[1].position[i]);
+            }
+        }
+        gHeadPoseValid = true;
+    }
     gCurrentEye = 0;
     ResetCapturedPass(StartMode::None);
 
@@ -790,6 +847,82 @@ extern "C" void __wrap__ZN9CRenderer19ConstructRenderListEv() {
 extern "C" void __wrap__ZN9CRenderer9PreRenderEv() {
     __real__ZN9CRenderer9PreRenderEv();
 }
+
+namespace QuestVrCamera {
+
+// OpenXR is +X right, +Y up, -Z forward. GTA is +X east, +Y north, +Z up.
+static void MapXrAxesToGame(const Float3& xr, float* x, float* y, float* z) {
+    *x = xr.x;
+    *y = -xr.z;
+    *z = xr.y;
+}
+
+bool IsHeadTrackingActive(void) {
+    return gHeadPoseValid;
+}
+
+bool GetHeadAngles(float* yaw, float* pitch) {
+    if (!gHeadPoseValid) {
+        return false;
+    }
+    const Float3 forward =
+            RotateByQuaternion(gHeadOrientation, Float3{0.0f, 0.0f, -1.0f});
+    float fx, fy, fz;
+    MapXrAxesToGame(forward, &fx, &fy, &fz);
+
+    const float horizontal = sqrtf(fx * fx + fy * fy);
+    if (horizontal < 1.0e-4f) {
+        // Looking straight up or down: yaw is undefined, so keep the caller's.
+        if (pitch != NULL) {
+            *pitch = fz > 0.0f ? HALFPI : -HALFPI;
+        }
+        return false;
+    }
+    if (yaw != NULL) {
+        *yaw = atan2f(fy, fx) + gHeadYawOffset;
+    }
+    if (pitch != NULL) {
+        const float clamped = fz < -1.0f ? -1.0f : (fz > 1.0f ? 1.0f : fz);
+        *pitch = asinf(clamped);
+    }
+    return true;
+}
+
+bool GetHeadPositionOffset(CVector* offset) {
+    if (!gHeadPoseValid || offset == NULL) {
+        return false;
+    }
+    float px, py, pz;
+    MapXrAxesToGame(
+            Float3{gHeadPosition[0], gHeadPosition[1], gHeadPosition[2]},
+            &px, &py, &pz);
+
+    // Rotate the translation by the same offset applied to the angles, so
+    // leaning left moves the camera left relative to where the player faces.
+    const float c = cosf(gHeadYawOffset);
+    const float s = sinf(gHeadYawOffset);
+    offset->x = px * c - py * s;
+    offset->y = px * s + py * c;
+    offset->z = pz;
+    return true;
+}
+
+void RecentreToPlayerHeading(float playerHeadingRadians) {
+    if (!gHeadPoseValid) {
+        return;
+    }
+    gHeadYawOffset = 0.0f;
+    float rawYaw = 0.0f;
+    if (!GetHeadAngles(&rawYaw, NULL)) {
+        return;
+    }
+    gHeadYawOffset = playerHeadingRadians - rawYaw;
+    gHeadYawOffsetSet = true;
+    BridgeLog("VR camera recentred: head yaw %.1f deg aligned to player heading %.1f deg",
+              rawYaw * 180.0f / PI, playerHeadingRadians * 180.0f / PI);
+}
+
+} // namespace QuestVrCamera
 
 namespace QuestGameHooks {
 
