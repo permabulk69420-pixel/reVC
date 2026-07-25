@@ -120,6 +120,9 @@ enum { HUD_LINES = 4 };
 char gHudLines[HUD_LINES][160];
 bool gHudQueuedThisFrame = false;
 
+// Why a stereo frame was last refused, or NULL while stereo is running.
+const char* gStereoGate = NULL;
+
 void QueueHudDiagnostics() {
     if (gHudQueuedThisFrame) {
         return;
@@ -148,7 +151,9 @@ void OpenBridgeLog() {
     if (mkdir(userFiles.c_str(), 0775) != 0 && errno != EEXIST) {
         return;
     }
-    gBridgeLog = fopen((userFiles + "/xr_log.txt").c_str(), "a");
+    // Truncate per run. Appending forever made the log unreadable on the
+    // headset, where scrolling to the end of a huge file is impractical.
+    gBridgeLog = fopen((userFiles + "/xr_log.txt").c_str(), "w");
 }
 
 void BridgeLog(const char* format, ...) {
@@ -171,6 +176,25 @@ void CloseBridgeLog() {
         fclose(gBridgeLog);
         gBridgeLog = NULL;
     }
+}
+
+// Reports why a stereo frame was refused, but only when the answer changes, so
+// a permanent stall costs one line rather than one per frame. Passing NULL
+// records that stereo is running again, so a recovery is logged too.
+void NoteStereoGate(const char* reason) {
+    if (reason == gStereoGate) {
+        return;
+    }
+    if (reason == NULL || gStereoGate == NULL ||
+        strcmp(reason, gStereoGate) != 0) {
+        if (reason == NULL) {
+            BridgeLog("stereo resumed after being gated by: %s",
+                      gStereoGate == NULL ? "<none>" : gStereoGate);
+        } else {
+            BridgeLog("stereo gated: %s", reason);
+        }
+    }
+    gStereoGate = reason;
 }
 
 void ResetCapturedPass(StartMode mode) {
@@ -670,8 +694,22 @@ void ResetStereoBridgeState() {
 }
 
 bool BeginLeftEyeBeforeCulling() {
-    if (!gXrReady || !QuestOpenXR::OwnsPresentation() ||
-        gStereoFrameActive || gReplayingRightEye) {
+    // Every early return here used to be silent, so stereo could stop for good
+    // while the game carried on rendering mono and nothing said why. Report the
+    // reason, but only when it changes, so a permanent stall costs one line
+    // rather than one per frame.
+    const char* reason = NULL;
+    if (!gXrReady) {
+        reason = "xr not ready";
+    } else if (!QuestOpenXR::OwnsPresentation()) {
+        reason = "presentation not owned";
+    } else if (gStereoFrameActive) {
+        reason = "previous stereo frame never finished";
+    } else if (gReplayingRightEye) {
+        reason = "still replaying right eye";
+    }
+    if (reason != NULL) {
+        NoteStereoGate(reason);
         return false;
     }
 
@@ -684,10 +722,15 @@ bool BeginLeftEyeBeforeCulling() {
         RsGlobal.quit = TRUE;
         return false;
     }
-    if (frame == QuestOpenXR::StereoFrameResult::WaitingForSession ||
-        frame == QuestOpenXR::StereoFrameResult::Inactive) {
+    if (frame == QuestOpenXR::StereoFrameResult::WaitingForSession) {
+        NoteStereoGate("BeginStereoFrame: waiting for session");
         return false;
     }
+    if (frame == QuestOpenXR::StereoFrameResult::Inactive) {
+        NoteStereoGate("BeginStereoFrame: inactive");
+        return false;
+    }
+    NoteStereoGate(NULL);
 
     gStereoFrameActive = true;
     gStereoShouldRender =
@@ -867,9 +910,10 @@ void QuestGameHooks::FrameEnd(void) {
                   gHooks.replay, gHooks.eyesSubmitted);
     }
     snprintf(gHudLines[0], sizeof(gHudLines[0]),
-             "hooks start %u end %u scene %u replay %u eyes %u",
+             "hooks start %u end %u scene %u replay %u eyes %u  stereo: %s",
              gHooks.frameStart, gHooks.frameEnd, gHooks.scene,
-             gHooks.replay, gHooks.eyesSubmitted);
+             gHooks.replay, gHooks.eyesSubmitted,
+             gStereoGate == NULL ? "running" : gStereoGate);
     // The HUD strings were consumed by DisplayScreenStrings earlier in this
     // frame; allow the next frame to queue them again.
     gHudQueuedThisFrame = false;
