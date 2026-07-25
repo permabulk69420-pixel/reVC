@@ -85,7 +85,6 @@ target_link_options(reVC PRIVATE
         "-Wl,--wrap=glBlitFramebuffer"
         "-Wl,--wrap=_ZN11QuestOpenXR10InitializeEv"
         "-Wl,--wrap=_ZN11QuestOpenXR16BeginStereoFrameEPNS_7EyeViewEjPj"
-        "-Wl,--wrap=_ZN4CPad10UpdatePadsEv"
         "-Wl,--wrap=_ZN9CRenderer19ConstructRenderListEv"
         "-Wl,--wrap=_ZN9CRenderer9PreRenderEv"
         "-Wl,--wrap=_Z29DoRWStuffStartOfFrame_Horizonsssssss"
